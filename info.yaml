@@ -1,0 +1,20 @@
+# AgentSAT entry description. The schema is in the rules (Submissions section) on the competition site.
+yaml_version: 1
+
+project:
+  title: "Baseline scan-DPLL"
+  author: "Mark Santolucito"
+  description: "DPLL with chronological backtracking; unit propagation by repeated full-clause scans over block RAM."
+  language: amaranth          # amaranth | verilog
+  clock_hz: 50000000          # your design clock, in Hz
+
+  disclosure:
+    method: agent-generated   # hand | ai-assisted | agent-generated
+    models:
+      - claude-opus-5-5
+    harness: "Claude Code"
+
+username:
+  sourcefiles:
+    - design.py
+    - solver.py
