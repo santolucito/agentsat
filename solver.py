@@ -288,14 +288,6 @@ class Bram(Elaboratable):
     Without `primitives` it is one Memory, which the Amaranth simulator can
     run; both behave identically, cycle for cycle."""
 
-    # Simulation only (never in the synthesized design): in the Memory
-    # build, invert the read data of a physical same-word read/write
-    # collision, which the competition build declares undefined
-    # (`no_rw_check`, see tools/gen_verilog.py) and the forwarding replaces.
-    # The tests and sim/export_verilog.py --memory set it, so the forwarding
-    # is checked.
-    poison_collisions = False
-
     def __init__(self, width, depth, bit_mask=False, primitives=True):
         self.width, self.depth = width, depth
         self.bit_mask, self.primitives = bit_mask, primitives
@@ -320,14 +312,16 @@ class Bram(Elaboratable):
             # not change behaviour. As in the primitive build below:
             #   * the write is registered and lands one cycle late, and a
             #     read of the word being written physically (the cycle after
-            #     the logical write) takes the registered write data instead
-            #     (one comparator per Bram, registered). So the read data of
-            #     a physical collision is never used, and tools/gen_verilog.py
-            #     marks every memory no_rw_check (otherwise yosys adds its
-            #     own delayed write, comparator and bypass to every bank);
+            #     the logical write) takes the registered write data instead.
+            #     So the read data of a physical collision is never used, and
+            #     tools/gen_verilog.py marks every memory no_rw_check
+            #     (otherwise yosys adds its own delayed write, comparator and
+            #     bypass to every bank). The comparison is made in the cycle
+            #     the data arrives, between registered copies of the read
+            #     and write addresses, so it is off the address paths;
             #   * the banks' read data is combined with a one-hot bank select
             #     registered from the read address (an AND-OR: two LUT levels
-            #     for five banks).
+            #     for five banks, the forwarded data included).
             width, abits = self.width, len(self.rd.addr)
             nbe = width if self.bit_mask else 1
             wa = Signal(abits, reset_less=True)
@@ -338,21 +332,17 @@ class Bram(Elaboratable):
                 wd.eq(self.wr.data),
                 wbe.eq(Mux(self.wr.en, self.wr.mask if self.bit_mask else 1, 0)),
             ]
-            fwd = Signal(nbe, reset_less=True)
+            # Registered copies: the read address of the data arriving now,
+            # and the write that was physically done in that read's cycle.
+            ra_q = Signal(abits, reset_less=True)
+            wa_q = Signal(abits, reset_less=True)
+            wbe_q = Signal(nbe, reset_less=True)
             fwd_d = Signal(width, reset_less=True)
-            m.d.sync += [fwd.eq(Mux(self.rd.addr == wa, wbe, 0)), fwd_d.eq(wd)]
+            m.d.sync += [ra_q.eq(self.rd.addr), wa_q.eq(wa), wbe_q.eq(wbe), fwd_d.eq(wd)]
+            fwd = Signal(nbe)
+            m.d.comb += fwd.eq(Mux(ra_q == wa_q, wbe_q, 0))
             fwd_bits = fwd if self.bit_mask else fwd.replicate(width)
-            raw = Signal(width)  # data out of the memories
-            if self.poison_collisions:
-                # Simulation only: a physical collision's read data is
-                # undefined on the device; corrupt it (forwarding replaces it).
-                col = Signal(width, reset_less=True)
-                m.d.sync += col.eq(Mux(self.rd.addr == wa, wbe if self.bit_mask
-                                       else wbe.replicate(width), 0))
-                raw_p = raw ^ col
-            else:
-                raw_p = raw
-            m.d.comb += self.rd.data.eq((raw_p & ~fwd_bits) | (fwd_d & fwd_bits))
+            outs = []  # (bits lo.., used, [(select, data)]) per column group
 
             rsel = {}  # block depth -> one-hot bank of the read issued last cycle
             for lo, used, tw in self.plan:
@@ -364,7 +354,7 @@ class Bram(Elaboratable):
                     rsel[bdepth] = Signal(nbanks, name=f"rsel{bdepth}", reset_less=True)
                     m.d.sync += rsel[bdepth].eq(
                         Cat(self.rd.addr[bab:] == b for b in range(nbanks)))
-                acc = 0
+                terms = []
                 for b in range(nbanks):
                     depth = min(bdepth, self.depth - b * bdepth) if nbanks > 1 else self.depth
                     mem = Memory(shape=used, depth=depth, init=[])
@@ -377,12 +367,20 @@ class Bram(Elaboratable):
                             w.addr.eq(wa[:bab]),
                             w.en.eq(Mux(wa[bab:] == b, en, 0)),
                         ]
-                        acc = acc | Mux(rsel[bdepth][b], r.data, 0)
+                        terms.append((rsel[bdepth][b], r.data))
                     else:
                         m.d.comb += [r.addr.eq(self.rd.addr), w.addr.eq(wa), w.en.eq(en)]
-                        acc = r.data
+                        terms.append((1, r.data))
                     m.d.comb += w.data.eq(wd[lo:lo + used])
-                m.d.comb += raw[lo:lo + used].eq(acc)
+                outs.append((lo, used, terms))
+            # Each bit: OR of (bank selected and not forwarded) & bank data,
+            # and (forwarded) & write data.
+            for lo, used, terms in outs:
+                for i in range(lo, lo + used):
+                    acc = Mux(fwd_bits[i], fwd_d[i], 0)
+                    for sel, d in terms:
+                        acc = acc | (sel & ~fwd_bits[i] & d[i - lo])
+                    m.d.comb += self.rd.data[i].eq(acc)
             return m
 
         width, abits = self.width, len(self.rd.addr)

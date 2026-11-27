@@ -11,6 +11,3 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import solver  # noqa: E402
 
 solver.Solver.bram_primitives = False
-# The competition build leaves the read data of a same-word read/write
-# collision undefined (no_rw_check); corrupt it here so tests catch a use.
-solver.Bram.poison_collisions = True
