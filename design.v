@@ -222,7 +222,7 @@ module agentsat_entry(wb_stb, wb_we, wb_adr, wb_dat_w, wb_sel, clk, rst, wb_dat_
   assign _013_ = _011_ & _012_;
   assign _014_ = ! state;
   assign _015_ = _013_ & _014_;
-  assign _016_ = \$signal  > 15'h4000;
+  assign _016_ = \$signal  > 14'h2000;
   assign _018_ = \$signal$15  > 15'h4000;
   assign _019_ = _016_ | _018_;
   assign _020_ = nlits > 16'hffff;
@@ -266,7 +266,7 @@ module agentsat_entry(wb_stb, wb_we, wb_adr, wb_dat_w, wb_sel, clk, rst, wb_dat_
   assign _057_ = _055_ & _056_;
   assign _058_ = ! state;
   assign _059_ = _057_ & _058_;
-  assign _060_ = \$signal  > 15'h4000;
+  assign _060_ = \$signal  > 14'h2000;
   assign _062_ = \$signal$15  > 15'h4000;
   assign _063_ = _060_ | _062_;
   assign _064_ = nlits > 16'hffff;
@@ -408,7 +408,7 @@ module agentsat_entry(wb_stb, wb_we, wb_adr, wb_dat_w, wb_sel, clk, rst, wb_dat_
         _311_ = a;
     endcase
   endfunction
-  assign _144_ = _311_(32'd0, { 29'h00000000, _034_, _033_, _032_, 30'h00000000, result, 160'h465053410000000100004000000040000000ffff, info }, { _152_, _151_, _150_, _149_, _148_, _147_, _146_, _145_ });
+  assign _144_ = _311_(32'd0, { 29'h00000000, _034_, _033_, _032_, 30'h00000000, result, 160'h465053410000000100002000000040000000ffff, info }, { _152_, _151_, _150_, _149_, _148_, _147_, _146_, _145_ });
   assign _145_ = wb_adr == 9'h00f;
   assign _146_ = wb_adr == 9'h00e;
   assign _147_ = wb_adr == 9'h00d;
@@ -1431,19 +1431,19 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire _0925_;
   wire _0926_;
   wire _0927_;
-  wire [13:0] _0928_;
+  wire [12:0] _0928_;
   wire _0929_;
   wire _0930_;
   wire _0931_;
   wire _0932_;
-  wire [13:0] _0933_;
+  wire [12:0] _0933_;
   wire _0934_;
   wire _0935_;
-  wire [13:0] _0936_;
+  wire [12:0] _0936_;
   wire [13:0] _0937_;
   wire _0938_;
   wire _0939_;
-  wire [13:0] _0940_;
+  wire [12:0] _0940_;
   wire _0941_;
   wire [17:0] _0942_;
   wire _0943_;
@@ -1463,7 +1463,7 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire _0957_;
   wire _0958_;
   wire _0959_;
-  wire [13:0] _0960_;
+  wire [12:0] _0960_;
   wire _0961_;
   wire _0962_;
   wire [14:0] _0963_;
@@ -1479,14 +1479,14 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire _0973_;
   wire [14:0] _0974_;
   wire _0975_;
-  wire [13:0] _0976_;
-  wire [13:0] _0977_;
+  wire [12:0] _0976_;
+  wire [12:0] _0977_;
   wire _0978_;
-  wire [13:0] _0979_;
+  wire [12:0] _0979_;
   wire [17:0] _0980_;
   wire _0981_;
-  wire [13:0] _0982_;
-  wire [13:0] _0983_;
+  wire [12:0] _0982_;
+  wire [12:0] _0983_;
   wire _0984_;
   wire _0985_;
   wire [14:0] _0986_;
@@ -1499,13 +1499,13 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire _0993_;
   wire _0994_;
   wire _0995_;
-  wire [13:0] _0996_;
+  wire [12:0] _0996_;
   wire _0997_;
   wire _0998_;
-  wire [13:0] _0999_;
+  wire [12:0] _0999_;
   wire _1000_;
   wire _1001_;
-  wire [13:0] _1002_;
+  wire [12:0] _1002_;
   wire [14:0] _1003_;
   wire _1004_;
   wire _1005_;
@@ -1517,12 +1517,12 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire [13:0] _1011_;
   wire _1012_;
   wire _1013_;
-  wire [13:0] _1014_;
+  wire [12:0] _1014_;
   wire _1015_;
   wire _1016_;
-  wire [13:0] _1017_;
+  wire [12:0] _1017_;
   wire _1018_;
-  wire [13:0] _1019_;
+  wire [12:0] _1019_;
   wire _1020_;
   wire _1021_;
   wire _1022_;
@@ -1572,10 +1572,10 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire _1066_;
   wire _1067_;
   wire _1068_;
-  wire [13:0] _1069_;
+  wire [12:0] _1069_;
   wire _1070_;
-  wire [13:0] _1071_;
-  wire [13:0] _1072_;
+  wire [12:0] _1071_;
+  wire [12:0] _1072_;
   wire _1073_;
   wire [17:0] _1074_;
   wire _1075_;
@@ -1585,16 +1585,16 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire [30:0] _1079_;
   wire _1080_;
   wire _1081_;
-  wire [13:0] _1082_;
-  wire [13:0] _1083_;
+  wire [12:0] _1082_;
+  wire [12:0] _1083_;
   wire _1084_;
-  wire [13:0] _1085_;
+  wire [12:0] _1085_;
   wire _1086_;
-  wire [13:0] _1087_;
-  wire [13:0] _1088_;
+  wire [12:0] _1087_;
+  wire [12:0] _1088_;
   wire _1089_;
-  wire [13:0] _1090_;
-  wire [13:0] _1091_;
+  wire [12:0] _1090_;
+  wire [12:0] _1091_;
   wire _1092_;
   wire [14:0] _1093_;
   wire [14:0] _1094_;
@@ -1602,10 +1602,10 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire _1096_;
   wire _1097_;
   wire [17:0] _1098_;
-  wire [13:0] _1099_;
+  wire [12:0] _1099_;
   wire _1100_;
-  wire [13:0] _1101_;
-  wire [13:0] _1102_;
+  wire [12:0] _1101_;
+  wire [12:0] _1102_;
   wire _1103_;
   wire _1104_;
   wire [14:0] _1105_;
@@ -1620,16 +1620,16 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire _1114_;
   wire _1115_;
   wire [14:0] _1116_;
-  wire [13:0] _1117_;
-  wire [13:0] _1118_;
+  wire [12:0] _1117_;
+  wire [12:0] _1118_;
   wire _1119_;
-  wire [13:0] _1120_;
+  wire [12:0] _1120_;
   wire _1121_;
-  wire [13:0] _1122_;
-  wire [13:0] _1123_;
+  wire [12:0] _1122_;
+  wire [12:0] _1123_;
   wire _1124_;
-  wire [13:0] _1125_;
-  wire [13:0] _1126_;
+  wire [12:0] _1125_;
+  wire [12:0] _1126_;
   wire _1127_;
   wire _1128_;
   wire _1129_;
@@ -1646,19 +1646,19 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire _1140_;
   wire _1141_;
   wire _1142_;
-  wire [13:0] _1143_;
-  wire [13:0] _1144_;
+  wire [12:0] _1143_;
+  wire [12:0] _1144_;
   wire _1145_;
-  wire [13:0] _1146_;
+  wire [12:0] _1146_;
   wire _1147_;
-  wire [13:0] _1148_;
+  wire [12:0] _1148_;
   wire [14:0] _1149_;
-  wire [13:0] _1150_;
+  wire [12:0] _1150_;
   wire _1151_;
-  wire [13:0] _1152_;
+  wire [12:0] _1152_;
   wire _1153_;
-  wire [13:0] _1154_;
-  wire [13:0] _1155_;
+  wire [12:0] _1154_;
+  wire [12:0] _1155_;
   wire _1156_;
   wire _1157_;
   wire _1158_;
@@ -2334,24 +2334,24 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   wire _1828_;
   input abort;
   wire abort;
-  wire [13:0] addr;
-  wire [13:0] \addr$100 ;
-  wire [13:0] \addr$105 ;
-  wire [13:0] \addr$11 ;
-  wire [13:0] \addr$121 ;
-  wire [13:0] \addr$123 ;
-  wire [13:0] \addr$151 ;
+  wire [12:0] addr;
+  wire [12:0] \addr$100 ;
+  wire [12:0] \addr$105 ;
+  wire [12:0] \addr$11 ;
+  wire [12:0] \addr$121 ;
+  wire [12:0] \addr$123 ;
+  wire [12:0] \addr$151 ;
   wire [16:0] \addr$39 ;
-  wire [13:0] \addr$47 ;
-  wire [13:0] \addr$49 ;
-  wire [13:0] \addr$51 ;
-  wire [13:0] \addr$53 ;
-  wire [13:0] \addr$55 ;
+  wire [12:0] \addr$47 ;
+  wire [12:0] \addr$49 ;
+  wire [12:0] \addr$51 ;
+  wire [12:0] \addr$53 ;
+  wire [12:0] \addr$55 ;
   wire [16:0] \addr$57 ;
-  wire [13:0] \addr$64 ;
-  wire [13:0] \addr$68 ;
-  wire [13:0] \addr$76 ;
-  wire [13:0] \addr$83 ;
+  wire [12:0] \addr$64 ;
+  wire [12:0] \addr$68 ;
+  wire [12:0] \addr$76 ;
+  wire [12:0] \addr$83 ;
   wire [13:0] as_addr;
   reg bad_input = 1'h0;
   reg bjk = 1'h0;
@@ -4145,78 +4145,78 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign _0920_ = fsm_state == 7'h50;
   assign ssum = _0921_ ? _0053_ : 12'h000;
   assign _0921_ = fsm_state == 7'h50;
-  function [13:0] _2803_;
-    input [13:0] a;
-    input [27:0] b;
+  function [12:0] _2803_;
+    input [12:0] a;
+    input [25:0] b;
     input [1:0] s;
     casez (s) // synopsys parallel_case
       2'b?1:
-        _2803_ = b[13:0];
+        _2803_ = b[12:0];
       2'b1?:
-        _2803_ = b[27:14];
+        _2803_ = b[25:13];
       default:
         _2803_ = a;
     endcase
   endfunction
-  assign \addr$151  = _2803_(14'h0000, { bv, pe[13:0] }, { _0924_, _0923_ });
+  assign \addr$151  = _2803_(13'h0000, { bv[12:0], pe[12:0] }, { _0924_, _0923_ });
   assign _0922_ = fsm_state == 7'h5c;
   assign _0923_ = fsm_state == 7'h5a;
   assign _0924_ = fsm_state == 7'h4a;
   assign _0925_ = _0012_ ? 1'h1 : 1'h0;
   assign mark = _0926_ ? _0925_ : 1'h0;
   assign _0926_ = fsm_state == 7'h37;
-  function [13:0] _2810_;
-    input [13:0] a;
-    input [69:0] b;
+  function [12:0] _2810_;
+    input [12:0] a;
+    input [64:0] b;
     input [4:0] s;
     casez (s) // synopsys parallel_case
       5'b????1:
-        _2810_ = b[13:0];
+        _2810_ = b[12:0];
       5'b???1?:
-        _2810_ = b[27:14];
+        _2810_ = b[25:13];
       5'b??1??:
-        _2810_ = b[41:28];
+        _2810_ = b[38:26];
       5'b?1???:
-        _2810_ = b[55:42];
+        _2810_ = b[51:39];
       5'b1????:
-        _2810_ = b[69:56];
+        _2810_ = b[64:52];
       default:
         _2810_ = a;
     endcase
   endfunction
-  assign \addr$123  = _2810_(14'h0000, { _0933_, te[13:0], mnw[14:1], _0928_, lbw[14:1] }, { _0934_, _0932_, _0931_, _0930_, _0927_ });
+  assign \addr$123  = _2810_(13'h0000, { _0933_, te[12:0], mnw[13:1], _0928_, lbw[13:1] }, { _0934_, _0932_, _0931_, _0930_, _0927_ });
   assign _0927_ = fsm_state == 7'h47;
-  assign _0928_ = v1 ? w1[14:1] : 14'h0000;
+  assign _0928_ = v1 ? w1[13:1] : 13'h0000;
   assign _0929_ = fsm_state == 7'h49;
   assign _0937_ = abort ? 14'h0000 : _0916_;
   assign _0930_ = fsm_state == 7'h43;
   assign _0931_ = fsm_state == 7'h3f;
   assign _0932_ = fsm_state == 7'h3a;
-  assign _0933_ = v1 ? w1[14:1] : 14'h0000;
+  assign _0933_ = v1 ? w1[13:1] : 13'h0000;
   assign _0934_ = fsm_state == 7'h37;
-  function [13:0] _2820_;
-    input [13:0] a;
-    input [55:0] b;
+  function [12:0] _2820_;
+    input [12:0] a;
+    input [51:0] b;
     input [3:0] s;
     casez (s) // synopsys parallel_case
       4'b???1:
-        _2820_ = b[13:0];
+        _2820_ = b[12:0];
       4'b??1?:
-        _2820_ = b[27:14];
+        _2820_ = b[25:13];
       4'b?1??:
-        _2820_ = b[41:28];
+        _2820_ = b[38:26];
       4'b1???:
-        _2820_ = b[55:42];
+        _2820_ = b[51:39];
       default:
         _2820_ = a;
     endcase
   endfunction
-  assign \addr$121  = _2820_(14'h0000, { _0940_, te[13:0], _0936_, pe[13:0] }, { _0941_, _0939_, _0938_, _0935_ });
+  assign \addr$121  = _2820_(13'h0000, { _0940_, te[12:0], _0936_, pe[12:0] }, { _0941_, _0939_, _0938_, _0935_ });
   assign _0935_ = fsm_state == 7'h5a;
-  assign _0936_ = v1 ? w1[14:1] : 14'h0000;
+  assign _0936_ = v1 ? w1[13:1] : 13'h0000;
   assign _0938_ = fsm_state == 7'h43;
   assign _0939_ = fsm_state == 7'h3a;
-  assign _0940_ = v1 ? w1[14:1] : 14'h0000;
+  assign _0940_ = v1 ? w1[13:1] : 13'h0000;
   assign _0941_ = fsm_state == 7'h37;
   assign _0942_ = _0496_ ? 18'h00002 : 18'h3ffff;
   assign mask = _0943_ ? _0942_ : 18'h3ffff;
@@ -4224,52 +4224,52 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign c = _0944_ ? { hi, 1'h1 } : 16'h0000;
   assign _0435_ = rst ? 14'h0000 : _0937_;
   assign _0944_ = fsm_state == 7'h2f;
-  function [13:0] _2833_;
-    input [13:0] a;
-    input [55:0] b;
+  function [12:0] _2833_;
+    input [12:0] a;
+    input [51:0] b;
     input [3:0] s;
     casez (s) // synopsys parallel_case
       4'b???1:
-        _2833_ = b[13:0];
+        _2833_ = b[12:0];
       4'b??1?:
-        _2833_ = b[27:14];
+        _2833_ = b[25:13];
       4'b?1??:
-        _2833_ = b[41:28];
+        _2833_ = b[38:26];
       4'b1???:
-        _2833_ = b[55:42];
+        _2833_ = b[51:39];
       default:
         _2833_ = a;
     endcase
   endfunction
-  assign \addr$105  = _2833_(14'h0000, { _0474_[13:0], c[13:0], _0478_[13:0], pp[13:0] }, { _0948_, _0947_, _0946_, _0945_ });
+  assign \addr$105  = _2833_(13'h0000, { _0474_[12:0], c[12:0], _0478_[12:0], pp[12:0] }, { _0948_, _0947_, _0946_, _0945_ });
   assign _0945_ = fsm_state == 7'h51;
   assign _0946_ = fsm_state == 7'h31;
   assign _0947_ = fsm_state == 7'h2f;
   assign _0948_ = fsm_state == 7'h2a;
-  function [13:0] _2838_;
-    input [13:0] a;
-    input [97:0] b;
+  function [12:0] _2838_;
+    input [12:0] a;
+    input [90:0] b;
     input [6:0] s;
     casez (s) // synopsys parallel_case
       7'b??????1:
-        _2838_ = b[13:0];
+        _2838_ = b[12:0];
       7'b?????1?:
-        _2838_ = b[27:14];
+        _2838_ = b[25:13];
       7'b????1??:
-        _2838_ = b[41:28];
+        _2838_ = b[38:26];
       7'b???1???:
-        _2838_ = b[55:42];
+        _2838_ = b[51:39];
       7'b??1????:
-        _2838_ = b[69:56];
+        _2838_ = b[64:52];
       7'b?1?????:
-        _2838_ = b[83:70];
+        _2838_ = b[77:65];
       7'b1??????:
-        _2838_ = b[97:84];
+        _2838_ = b[90:78];
       default:
         _2838_ = a;
     endcase
   endfunction
-  assign \addr$100  = _2838_(14'h0000, { sc[13:0], dx, hu, hu2, bv, hu, pe[13:0] }, { _0955_, _0954_, _0953_, _0952_, _0951_, _0950_, _0949_ });
+  assign \addr$100  = _2838_(13'h0000, { sc[12:0], dx[12:0], hu[12:0], hu2[12:0], bv[12:0], hu[12:0], pe[12:0] }, { _0955_, _0954_, _0953_, _0952_, _0951_, _0950_, _0949_ });
   assign _0949_ = fsm_state == 7'h5a;
   assign _0950_ = fsm_state == 7'h54;
   assign _0951_ = fsm_state == 7'h4a;
@@ -4283,23 +4283,23 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign _0958_ = cand_valid ? _0957_ : 1'h1;
   assign shift = _0959_ ? _0958_ : 1'h0;
   assign _0959_ = fsm_state == 7'h21;
-  assign _0960_ = _0067_ ? 14'h0000 : _0068_[13:0];
-  function [13:0] _2853_;
-    input [13:0] a;
-    input [41:0] b;
+  assign _0960_ = _0067_ ? 13'h0000 : _0068_[12:0];
+  function [12:0] _2853_;
+    input [12:0] a;
+    input [38:0] b;
     input [2:0] s;
     casez (s) // synopsys parallel_case
       3'b??1:
-        _2853_ = b[13:0];
+        _2853_ = b[12:0];
       3'b?1?:
-        _2853_ = b[27:14];
+        _2853_ = b[25:13];
       3'b1??:
-        _2853_ = b[41:28];
+        _2853_ = b[38:26];
       default:
         _2853_ = a;
     endcase
   endfunction
-  assign \addr$83  = _2853_(14'h0000, { qhead[13:0], tidx[13:0], _0960_ }, { _0964_, _0962_, _0961_ });
+  assign \addr$83  = _2853_(13'h0000, { qhead[12:0], tidx[12:0], _0960_ }, { _0964_, _0962_, _0961_ });
   assign _0961_ = fsm_state == 7'h14;
   assign _0962_ = fsm_state == 7'h38;
   assign _0964_ = fsm_state == 7'h07;
@@ -4331,33 +4331,33 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign _0971_ = \data$63  ? 16'h0000 : { 1'h0, _0257_, lit0w[14:1] };
   assign _0972_ = _0226_ ? 16'h0000 : _0971_;
   assign _0973_ = fsm_state == 7'h0c;
-  function [13:0] _2868_;
-    input [13:0] a;
-    input [55:0] b;
+  function [12:0] _2868_;
+    input [12:0] a;
+    input [51:0] b;
     input [3:0] s;
     casez (s) // synopsys parallel_case
       4'b???1:
-        _2868_ = b[13:0];
+        _2868_ = b[12:0];
       4'b??1?:
-        _2868_ = b[27:14];
+        _2868_ = b[25:13];
       4'b?1??:
-        _2868_ = b[41:28];
+        _2868_ = b[38:26];
       4'b1???:
-        _2868_ = b[55:42];
+        _2868_ = b[51:39];
       default:
         _2868_ = a;
     endcase
   endfunction
-  assign \addr$76  = _2868_(14'h0000, { _0983_, _0979_, _0977_, tp[13:0] }, { _0984_, _0981_, _0978_, _0975_ });
+  assign \addr$76  = _2868_(13'h0000, { _0983_, _0979_, _0977_, tp[12:0] }, { _0984_, _0981_, _0978_, _0975_ });
   assign _0975_ = fsm_state == 7'h58;
-  assign _0976_ = _0476_ ? 14'h0000 : tp[13:0];
-  assign _0977_ = dasg[1] ? 14'h0000 : _0976_;
+  assign _0976_ = _0476_ ? 13'h0000 : tp[12:0];
+  assign _0977_ = dasg[1] ? 13'h0000 : _0976_;
   assign _0978_ = fsm_state == 7'h2e;
-  assign _0979_ = oth_asg[1] ? 14'h0000 : tp[13:0];
+  assign _0979_ = oth_asg[1] ? 13'h0000 : tp[12:0];
   assign _0987_ = _0994_ ? _0974_ : maxlit;
   assign _0981_ = fsm_state == 7'h20;
-  assign _0982_ = \data$63  ? 14'h0000 : tp[13:0];
-  assign _0983_ = _0226_ ? 14'h0000 : _0982_;
+  assign _0982_ = \data$63  ? 13'h0000 : tp[12:0];
+  assign _0983_ = _0226_ ? 13'h0000 : _0982_;
   assign _0984_ = fsm_state == 7'h0c;
   function [14:0] _2879_;
     input [14:0] a;
@@ -4387,38 +4387,38 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign _0991_ = fsm_state == 7'h35;
   assign _0992_ = _0128_ ? { 1'h1, hn[13:0] } : 15'h0000;
   assign _0993_ = fsm_state == 7'h05;
-  function [13:0] _2888_;
-    input [13:0] a;
-    input [83:0] b;
+  function [12:0] _2888_;
+    input [12:0] a;
+    input [77:0] b;
     input [5:0] s;
     casez (s) // synopsys parallel_case
       6'b?????1:
-        _2888_ = b[13:0];
+        _2888_ = b[12:0];
       6'b????1?:
-        _2888_ = b[27:14];
+        _2888_ = b[25:13];
       6'b???1??:
-        _2888_ = b[41:28];
+        _2888_ = b[38:26];
       6'b??1???:
-        _2888_ = b[55:42];
+        _2888_ = b[51:39];
       6'b?1????:
-        _2888_ = b[69:56];
+        _2888_ = b[64:52];
       6'b1?????:
-        _2888_ = b[83:70];
+        _2888_ = b[77:65];
       default:
         _2888_ = a;
     endcase
   endfunction
-  assign \addr$68  = _2888_(14'h0000, { _1002_, dv, _0999_, hx, _0996_, hx }, { _1004_, _1001_, _1000_, _0998_, _0997_, _0995_ });
+  assign \addr$68  = _2888_(13'h0000, { _1002_, dv[12:0], _0999_, hx[12:0], _0996_, hx[12:0] }, { _1004_, _1001_, _1000_, _0998_, _0997_, _0995_ });
   assign _0994_ = fsm_state == 7'h49;
   assign _1003_ = abort ? 15'h0000 : _0987_;
   assign _0995_ = fsm_state == 7'h52;
-  assign _0996_ = _0066_ ? hu : 14'h0000;
+  assign _0996_ = _0066_ ? hu[12:0] : 13'h0000;
   assign _0997_ = fsm_state == 7'h56;
   assign _0998_ = fsm_state == 7'h30;
-  assign _0999_ = _0484_ ? _0495_ : 14'h0000;
+  assign _0999_ = _0484_ ? _0495_[12:0] : 13'h0000;
   assign _1000_ = fsm_state == 7'h35;
   assign _1001_ = fsm_state == 7'h2b;
-  assign _1002_ = _0128_ ? q_var : 14'h0000;
+  assign _1002_ = _0128_ ? q_var[12:0] : 13'h0000;
   assign _1004_ = fsm_state == 7'h05;
   function [13:0] _2900_;
     input [13:0] a;
@@ -4449,33 +4449,33 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign _1010_ = fsm_state == 7'h35;
   assign _1011_ = _0128_ ? q_var : 14'h0000;
   assign _1012_ = fsm_state == 7'h05;
-  function [13:0] _2910_;
-    input [13:0] a;
-    input [69:0] b;
+  function [12:0] _2910_;
+    input [12:0] a;
+    input [64:0] b;
     input [4:0] s;
     casez (s) // synopsys parallel_case
       5'b????1:
-        _2910_ = b[13:0];
+        _2910_ = b[12:0];
       5'b???1?:
-        _2910_ = b[27:14];
+        _2910_ = b[25:13];
       5'b??1??:
-        _2910_ = b[41:28];
+        _2910_ = b[38:26];
       5'b?1???:
-        _2910_ = b[55:42];
+        _2910_ = b[51:39];
       5'b1????:
-        _2910_ = b[69:56];
+        _2910_ = b[64:52];
       default:
         _2910_ = a;
     endcase
   endfunction
-  assign \addr$64  = _2910_(14'h0000, { _1019_, _1017_, hi[13:0], _1014_, hi[13:0] }, { _1020_, _1018_, _1016_, _1015_, _1013_ });
+  assign \addr$64  = _2910_(13'h0000, { _1019_, _1017_, hi[12:0], _1014_, hi[12:0] }, { _1020_, _1018_, _1016_, _1015_, _1013_ });
   assign _1013_ = fsm_state == 7'h52;
-  assign _1014_ = _0066_ ? hi[13:0] : 14'h0000;
+  assign _1014_ = _0066_ ? hi[12:0] : 13'h0000;
   assign _1015_ = fsm_state == 7'h56;
   assign _1016_ = fsm_state == 7'h30;
-  assign _1017_ = _0484_ ? hi[13:0] : 14'h0000;
+  assign _1017_ = _0484_ ? hi[12:0] : 13'h0000;
   assign _1018_ = fsm_state == 7'h35;
-  assign _1019_ = _0128_ ? hn[13:0] : 14'h0000;
+  assign _1019_ = _0128_ ? hn[12:0] : 13'h0000;
   assign _1020_ = fsm_state == 7'h05;
   function [13:0] _2919_;
     input [13:0] a;
@@ -4498,7 +4498,7 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
         _2919_ = a;
     endcase
   endfunction
-  assign addr = _2919_(14'h0000, { qv[13:0], _1025_, other[14:1], c1[14:1], dv, model_addr[13:0] }, { _1027_, _1026_, _1024_, _1023_, _1022_, _1021_ });
+  assign as_addr = _2919_(14'h0000, { qv[13:0], _1025_, other[14:1], c1[14:1], dv, model_addr[13:0] }, { _1027_, _1026_, _1024_, _1023_, _1022_, _1021_ });
   assign _1021_ = fsm_state == 7'h02;
   assign _1022_ = fsm_state == 7'h2b;
   assign _1023_ = fsm_state == 7'h21;
@@ -4622,29 +4622,29 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign _1064_ = fsm_state == 7'h50;
   assign _1065_ = sc_rv ? _0473_[15:0] : 16'h0000;
   assign _1066_ = fsm_state == 7'h28;
-  function [13:0] _2969_;
-    input [13:0] a;
-    input [41:0] b;
+  function [12:0] _2969_;
+    input [12:0] a;
+    input [38:0] b;
     input [2:0] s;
     casez (s) // synopsys parallel_case
       3'b??1:
-        _2969_ = b[13:0];
+        _2969_ = b[12:0];
       3'b?1?:
-        _2969_ = b[27:14];
+        _2969_ = b[25:13];
       3'b1??:
-        _2969_ = b[41:28];
+        _2969_ = b[38:26];
       default:
         _2969_ = a;
     endcase
   endfunction
-  assign \addr$55  = _2969_(14'h0000, { _1072_, _1069_, bv }, { _1073_, _1070_, _1068_ });
+  assign \addr$55  = _2969_(13'h0000, { _1072_, _1069_, bv[12:0] }, { _1073_, _1070_, _1068_ });
   assign _1067_ = fsm_state == 7'h49;
   assign _1074_ = abort ? 18'h00000 : _1061_;
   assign _1068_ = fsm_state == 7'h50;
-  assign _1069_ = sc_rv ? sc_var : 14'h0000;
+  assign _1069_ = sc_rv ? sc_var[12:0] : 13'h0000;
   assign _1070_ = fsm_state == 7'h28;
-  assign _1071_ = ci[0] ? 14'h0000 : ci[14:1];
-  assign _1072_ = _0096_ ? _1071_ : 14'h0000;
+  assign _1071_ = ci[0] ? 13'h0000 : ci[13:1];
+  assign _1072_ = _0096_ ? _1071_ : 13'h0000;
   assign _1073_ = fsm_state == 7'h03;
   function [30:0] _2978_;
     input [30:0] a;
@@ -4669,65 +4669,65 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign _1079_ = oth_asg[1] ? 31'h00000000 : { cur[16:0], dl[13:0] };
   assign _0433_ = rst ? 18'h00000 : _1074_;
   assign _1080_ = fsm_state == 7'h20;
-  function [13:0] _2986_;
-    input [13:0] a;
-    input [69:0] b;
+  function [12:0] _2986_;
+    input [12:0] a;
+    input [64:0] b;
     input [4:0] s;
     casez (s) // synopsys parallel_case
       5'b????1:
-        _2986_ = b[13:0];
+        _2986_ = b[12:0];
       5'b???1?:
-        _2986_ = b[27:14];
+        _2986_ = b[25:13];
       5'b??1??:
-        _2986_ = b[41:28];
+        _2986_ = b[38:26];
       5'b?1???:
-        _2986_ = b[55:42];
+        _2986_ = b[51:39];
       5'b1????:
-        _2986_ = b[69:56];
+        _2986_ = b[64:52];
       default:
         _2986_ = a;
     endcase
   endfunction
-  assign \addr$53  = _2986_(14'h0000, { _1091_, _1088_, _1085_, _1083_, te[13:0] }, { _1092_, _1089_, _1086_, _1084_, _1081_ });
+  assign \addr$53  = _2986_(13'h0000, { _1091_, _1088_, _1085_, _1083_, te[12:0] }, { _1092_, _1089_, _1086_, _1084_, _1081_ });
   assign _1081_ = fsm_state == 7'h58;
-  assign _1082_ = _0476_ ? 14'h0000 : dv;
-  assign _1083_ = dasg[1] ? 14'h0000 : _1082_;
+  assign _1082_ = _0476_ ? 13'h0000 : dv[12:0];
+  assign _1083_ = dasg[1] ? 13'h0000 : _1082_;
   assign _1084_ = fsm_state == 7'h2e;
-  assign _1085_ = oth_asg[1] ? 14'h0000 : other[14:1];
+  assign _1085_ = oth_asg[1] ? 13'h0000 : other[13:1];
   assign _1086_ = fsm_state == 7'h20;
-  assign _1087_ = \data$63  ? 14'h0000 : lit0w[14:1];
+  assign _1087_ = \data$63  ? 13'h0000 : lit0w[13:1];
   assign _1093_ = _0276_ ? lbw[14:0] : firstlit;
-  assign _1088_ = _0226_ ? 14'h0000 : _1087_;
+  assign _1088_ = _0226_ ? 13'h0000 : _1087_;
   assign _1089_ = fsm_state == 7'h0c;
-  assign _1090_ = ci[0] ? 14'h0000 : ci[14:1];
-  assign _1091_ = _0096_ ? _1090_ : 14'h0000;
+  assign _1090_ = ci[0] ? 13'h0000 : ci[13:1];
+  assign _1091_ = _0096_ ? _1090_ : 13'h0000;
   assign _1092_ = fsm_state == 7'h03;
   assign _1094_ = lbw[16] ? firstlit : _1093_;
   assign _1095_ = _0012_ ? 1'h1 : 1'h0;
   assign \data$52  = _1096_ ? _1095_ : 1'h0;
   assign _1096_ = fsm_state == 7'h37;
-  function [13:0] _3004_;
-    input [13:0] a;
-    input [41:0] b;
+  function [12:0] _3004_;
+    input [12:0] a;
+    input [38:0] b;
     input [2:0] s;
     casez (s) // synopsys parallel_case
       3'b??1:
-        _3004_ = b[13:0];
+        _3004_ = b[12:0];
       3'b?1?:
-        _3004_ = b[27:14];
+        _3004_ = b[25:13];
       3'b1??:
-        _3004_ = b[41:28];
+        _3004_ = b[38:26];
       default:
         _3004_ = a;
     endcase
   endfunction
-  assign \addr$51  = _3004_(14'h0000, { _1102_, _1099_, bv }, { _1103_, _1100_, _1097_ });
+  assign \addr$51  = _3004_(13'h0000, { _1102_, _1099_, bv[12:0] }, { _1103_, _1100_, _1097_ });
   assign _1097_ = fsm_state == 7'h4a;
   assign _1105_ = _1111_ ? _1094_ : firstlit;
-  assign _1099_ = _0012_ ? w3[14:1] : 14'h0000;
+  assign _1099_ = _0012_ ? w3[13:1] : 13'h0000;
   assign _1100_ = fsm_state == 7'h37;
-  assign _1101_ = ci[0] ? 14'h0000 : ci[14:1];
-  assign _1102_ = _0096_ ? _1101_ : 14'h0000;
+  assign _1101_ = ci[0] ? 13'h0000 : ci[13:1];
+  assign _1102_ = _0096_ ? _1101_ : 13'h0000;
   assign _1103_ = fsm_state == 7'h03;
   function [0:0] _3012_;
     input [0:0] a;
@@ -4758,38 +4758,38 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign _1112_ = \data$63  ? 1'h0 : _0247_;
   assign _1113_ = _0226_ ? 1'h0 : _1112_;
   assign _1114_ = fsm_state == 7'h0c;
-  function [13:0] _3024_;
-    input [13:0] a;
-    input [69:0] b;
+  function [12:0] _3024_;
+    input [12:0] a;
+    input [64:0] b;
     input [4:0] s;
     casez (s) // synopsys parallel_case
       5'b????1:
-        _3024_ = b[13:0];
+        _3024_ = b[12:0];
       5'b???1?:
-        _3024_ = b[27:14];
+        _3024_ = b[25:13];
       5'b??1??:
-        _3024_ = b[41:28];
+        _3024_ = b[38:26];
       5'b?1???:
-        _3024_ = b[55:42];
+        _3024_ = b[51:39];
       5'b1????:
-        _3024_ = b[69:56];
+        _3024_ = b[64:52];
       default:
         _3024_ = a;
     endcase
   endfunction
-  assign \addr$49  = _3024_(14'h0000, { _1126_, _1123_, _1120_, _1118_, te[13:0] }, { _1127_, _1124_, _1121_, _1119_, _1115_ });
+  assign \addr$49  = _3024_(13'h0000, { _1126_, _1123_, _1120_, _1118_, te[12:0] }, { _1127_, _1124_, _1121_, _1119_, _1115_ });
   assign _1115_ = fsm_state == 7'h58;
-  assign _1117_ = _0476_ ? 14'h0000 : dv;
-  assign _1118_ = dasg[1] ? 14'h0000 : _1117_;
+  assign _1117_ = _0476_ ? 13'h0000 : dv[12:0];
+  assign _1118_ = dasg[1] ? 13'h0000 : _1117_;
   assign _1119_ = fsm_state == 7'h2e;
-  assign _1120_ = oth_asg[1] ? 14'h0000 : other[14:1];
+  assign _1120_ = oth_asg[1] ? 13'h0000 : other[13:1];
   assign _1121_ = fsm_state == 7'h20;
   assign _0432_ = rst ? 15'h0000 : _1116_;
-  assign _1122_ = \data$63  ? 14'h0000 : lit0w[14:1];
-  assign _1123_ = _0226_ ? 14'h0000 : _1122_;
+  assign _1122_ = \data$63  ? 13'h0000 : lit0w[13:1];
+  assign _1123_ = _0226_ ? 13'h0000 : _1122_;
   assign _1124_ = fsm_state == 7'h0c;
-  assign _1125_ = ci[0] ? 14'h0000 : ci[14:1];
-  assign _1126_ = _0096_ ? _1125_ : 14'h0000;
+  assign _1125_ = ci[0] ? 13'h0000 : ci[13:1];
+  assign _1126_ = _0096_ ? _1125_ : 13'h0000;
   assign _1127_ = fsm_state == 7'h03;
   function [0:0] _3038_;
     input [0:0] a;
@@ -4824,45 +4824,45 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign _1138_ = ci[0] ? 1'h0 : 1'h1;
   assign _1139_ = _0096_ ? _1138_ : 1'h0;
   assign _1140_ = fsm_state == 7'h03;
-  function [13:0] _3052_;
-    input [13:0] a;
-    input [97:0] b;
+  function [12:0] _3052_;
+    input [12:0] a;
+    input [90:0] b;
     input [6:0] s;
     casez (s) // synopsys parallel_case
       7'b??????1:
-        _3052_ = b[13:0];
+        _3052_ = b[12:0];
       7'b?????1?:
-        _3052_ = b[27:14];
+        _3052_ = b[25:13];
       7'b????1??:
-        _3052_ = b[41:28];
+        _3052_ = b[38:26];
       7'b???1???:
-        _3052_ = b[55:42];
+        _3052_ = b[51:39];
       7'b??1????:
-        _3052_ = b[69:56];
+        _3052_ = b[64:52];
       7'b?1?????:
-        _3052_ = b[83:70];
+        _3052_ = b[77:65];
       7'b1??????:
-        _3052_ = b[97:84];
+        _3052_ = b[90:78];
       default:
         _3052_ = a;
     endcase
   endfunction
-  assign \addr$47  = _3052_(14'h0000, { _1155_, _1152_, _1150_, _1146_, _1144_, \data$156 [13:0], te[13:0] }, { _1158_, _1153_, _1151_, _1147_, _1145_, _1142_, _1141_ });
+  assign \addr$47  = _3052_(13'h0000, { _1155_, _1152_, _1150_, _1146_, _1144_, \data$156 [12:0], te[12:0] }, { _1158_, _1153_, _1151_, _1147_, _1145_, _1142_, _1141_ });
   assign _1141_ = fsm_state == 7'h58;
   assign _1142_ = fsm_state == 7'h59;
-  assign _1143_ = _0476_ ? 14'h0000 : dv;
+  assign _1143_ = _0476_ ? 13'h0000 : dv[12:0];
   assign _1149_ = _1156_ ? _1137_ : lastlit;
-  assign _1144_ = dasg[1] ? 14'h0000 : _1143_;
+  assign _1144_ = dasg[1] ? 13'h0000 : _1143_;
   assign _1145_ = fsm_state == 7'h2e;
-  assign _1146_ = oth_asg[1] ? 14'h0000 : other[14:1];
+  assign _1146_ = oth_asg[1] ? 13'h0000 : other[13:1];
   assign _1147_ = fsm_state == 7'h20;
-  assign _1148_ = \data$63  ? 14'h0000 : lit0w[14:1];
-  assign _1150_ = _0226_ ? 14'h0000 : _1148_;
+  assign _1148_ = \data$63  ? 13'h0000 : lit0w[13:1];
+  assign _1150_ = _0226_ ? 13'h0000 : _1148_;
   assign _1151_ = fsm_state == 7'h0c;
-  assign _1152_ = mw_valid ? mw[14:1] : 14'h0000;
+  assign _1152_ = mw_valid ? mw[13:1] : 13'h0000;
   assign _1153_ = fsm_state == 7'h04;
-  assign _1154_ = ci[0] ? 14'h0000 : ci[14:1];
-  assign _1155_ = _0096_ ? _1154_ : 14'h0000;
+  assign _1154_ = ci[0] ? 13'h0000 : ci[13:1];
+  assign _1155_ = _0096_ ? _1154_ : 13'h0000;
   assign _1156_ = fsm_state == 7'h49;
   assign _1157_ = fsm_state == 7'h5e;
   assign _1221_ = abort ? 18'h00000 : _1098_;
@@ -6735,7 +6735,7 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   \agentsat_entry.solver.core.asg_a  asg_a (
     .clk(clk),
     .data(\data$63 ),
-    .r__addr(addr),
+    .r__addr(as_addr[12:0]),
     .rst(rst),
     .w__addr(\addr$47 ),
     .w__data(\data$48 ),
@@ -6744,7 +6744,7 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   \agentsat_entry.solver.core.asg_v  asg_v (
     .clk(clk),
     .data(\data$75 ),
-    .r__addr(addr),
+    .r__addr(as_addr[12:0]),
     .rst(rst),
     .w__addr(\addr$49 ),
     .w__data(\data$50 ),
@@ -6809,13 +6809,13 @@ module \agentsat_entry.solver.core (clk, rst, start, abort, load_valid, info, nv
   assign res = result;
   assign rlimit = { 1'h0, lv, 7'h00 };
   assign inc[15:10] = inc_e;
-  assign \addr$11  = addr;
-  assign as_addr = addr;
+  assign \addr$11  = as_addr[12:0];
+  assign addr = as_addr[12:0];
 endmodule
 
 module \agentsat_entry.solver.core.act (rst, w__en, w__addr, \data$7 , r__addr, data, clk);
-  wire [13:0] addr;
-  wire [13:0] \addr$5 ;
+  wire [12:0] addr;
+  wire [12:0] \addr$5 ;
   input clk;
   wire clk;
   output [15:0] data;
@@ -6823,42 +6823,42 @@ module \agentsat_entry.solver.core.act (rst, w__en, w__addr, \data$7 , r__addr, 
   input [15:0] \data$7 ;
   wire [15:0] \data$7 ;
   wire en;
-  input [13:0] r__addr;
-  wire [13:0] r__addr;
-  wire [13:0] \r__addr$10 ;
-  wire [13:0] \r__addr$15 ;
-  wire [13:0] \r__addr$20 ;
-  wire [13:0] \r__addr$25 ;
-  wire [13:0] \r__addr$30 ;
-  wire [13:0] \r__addr$35 ;
-  wire [13:0] \r__addr$40 ;
-  wire [8:0] r__data;
-  wire \r__data$11 ;
-  wire \r__data$16 ;
-  wire \r__data$21 ;
-  wire \r__data$26 ;
-  wire \r__data$31 ;
-  wire \r__data$36 ;
-  wire \r__data$41 ;
+  input [12:0] r__addr;
+  wire [12:0] r__addr;
+  wire [12:0] \r__addr$10 ;
+  wire [12:0] \r__addr$15 ;
+  wire [12:0] \r__addr$20 ;
+  wire [12:0] \r__addr$25 ;
+  wire [12:0] \r__addr$30 ;
+  wire [12:0] \r__addr$35 ;
+  wire [12:0] \r__addr$40 ;
+  wire [1:0] r__data;
+  wire [1:0] \r__data$11 ;
+  wire [1:0] \r__data$16 ;
+  wire [1:0] \r__data$21 ;
+  wire [1:0] \r__data$26 ;
+  wire [1:0] \r__data$31 ;
+  wire [1:0] \r__data$36 ;
+  wire [1:0] \r__data$41 ;
   input rst;
   wire rst;
-  input [13:0] w__addr;
-  wire [13:0] w__addr;
-  wire [13:0] \w__addr$12 ;
-  wire [13:0] \w__addr$17 ;
-  wire [13:0] \w__addr$22 ;
-  wire [13:0] \w__addr$27 ;
-  wire [13:0] \w__addr$32 ;
-  wire [13:0] \w__addr$37 ;
-  wire [13:0] \w__addr$42 ;
-  wire [8:0] w__data;
-  wire \w__data$13 ;
-  wire \w__data$18 ;
-  wire \w__data$23 ;
-  wire \w__data$28 ;
-  wire \w__data$33 ;
-  wire \w__data$38 ;
-  wire \w__data$43 ;
+  input [12:0] w__addr;
+  wire [12:0] w__addr;
+  wire [12:0] \w__addr$12 ;
+  wire [12:0] \w__addr$17 ;
+  wire [12:0] \w__addr$22 ;
+  wire [12:0] \w__addr$27 ;
+  wire [12:0] \w__addr$32 ;
+  wire [12:0] \w__addr$37 ;
+  wire [12:0] \w__addr$42 ;
+  wire [1:0] w__data;
+  wire [1:0] \w__data$13 ;
+  wire [1:0] \w__data$18 ;
+  wire [1:0] \w__data$23 ;
+  wire [1:0] \w__data$28 ;
+  wire [1:0] \w__data$33 ;
+  wire [1:0] \w__data$38 ;
+  wire [1:0] \w__data$43 ;
   input w__en;
   wire w__en;
   wire \w__en$14 ;
@@ -6868,142 +6868,142 @@ module \agentsat_entry.solver.core.act (rst, w__en, w__addr, \data$7 , r__addr, 
   wire \w__en$34 ;
   wire \w__en$39 ;
   wire \w__en$44 ;
-  reg [8:0] mem0 [16383:0];
+  reg [1:0] mem0 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem0[w__addr] <= \data$7 [8:0];
+      mem0[w__addr] <= \data$7 [1:0];
   end
-  reg [8:0] _16_;
+  reg [1:0] _16_;
   always @(posedge clk) begin
     _16_ <= mem0[r__addr];
   end
   assign r__data = _16_;
-  reg [0:0] mem10 [16383:0];
+  reg [1:0] mem10 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem10[w__addr] <= \data$7 [10];
+      mem10[w__addr] <= \data$7 [11:10];
   end
-  reg [0:0] _17_;
+  reg [1:0] _17_;
   always @(posedge clk) begin
     _17_ <= mem10[r__addr];
   end
-  assign \r__data$16  = _17_;
-  reg [0:0] mem11 [16383:0];
+  assign \r__data$31  = _17_;
+  reg [1:0] mem12 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem11[w__addr] <= \data$7 [11];
+      mem12[w__addr] <= \data$7 [13:12];
   end
-  reg [0:0] _18_;
+  reg [1:0] _18_;
   always @(posedge clk) begin
-    _18_ <= mem11[r__addr];
+    _18_ <= mem12[r__addr];
   end
-  assign \r__data$21  = _18_;
-  reg [0:0] mem12 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem12[w__addr] <= \data$7 [12];
-  end
-  reg [0:0] _19_;
-  always @(posedge clk) begin
-    _19_ <= mem12[r__addr];
-  end
-  assign \r__data$26  = _19_;
-  reg [0:0] mem13 [16383:0];
+  assign \r__data$36  = _18_;
+  reg [1:0] mem14 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem13[w__addr] <= \data$7 [13];
+      mem14[w__addr] <= \data$7 [15:14];
   end
-  reg [0:0] _20_;
+  reg [1:0] _19_;
   always @(posedge clk) begin
-    _20_ <= mem13[r__addr];
+    _19_ <= mem14[r__addr];
   end
-  assign \r__data$31  = _20_;
-  reg [0:0] mem14 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem14[w__addr] <= \data$7 [14];
-  end
-  reg [0:0] _21_;
-  always @(posedge clk) begin
-    _21_ <= mem14[r__addr];
-  end
-  assign \r__data$36  = _21_;
-  reg [0:0] mem15 [16383:0];
+  assign \r__data$41  = _19_;
+  reg [1:0] mem2 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem15[w__addr] <= \data$7 [15];
+      mem2[w__addr] <= \data$7 [3:2];
   end
-  reg [0:0] _22_;
+  reg [1:0] _20_;
   always @(posedge clk) begin
-    _22_ <= mem15[r__addr];
+    _20_ <= mem2[r__addr];
   end
-  assign \r__data$41  = _22_;
-  reg [0:0] mem9 [16383:0];
+  assign \r__data$11  = _20_;
+  reg [1:0] mem4 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem9[w__addr] <= \data$7 [9];
+      mem4[w__addr] <= \data$7 [5:4];
   end
-  reg [0:0] _23_;
+  reg [1:0] _21_;
   always @(posedge clk) begin
-    _23_ <= mem9[r__addr];
+    _21_ <= mem4[r__addr];
   end
-  assign \r__data$11  = _23_;
+  assign \r__data$16  = _21_;
+  reg [1:0] mem6 [8191:0];
+  always @(posedge clk) begin
+    if (w__en)
+      mem6[w__addr] <= \data$7 [7:6];
+  end
+  reg [1:0] _22_;
+  always @(posedge clk) begin
+    _22_ <= mem6[r__addr];
+  end
+  assign \r__data$21  = _22_;
+  reg [1:0] mem8 [8191:0];
+  always @(posedge clk) begin
+    if (w__en)
+      mem8[w__addr] <= \data$7 [9:8];
+  end
+  reg [1:0] _23_;
+  always @(posedge clk) begin
+    _23_ <= mem8[r__addr];
+  end
+  assign \r__data$26  = _23_;
   assign data = { \r__data$41 , \r__data$36 , \r__data$31 , \r__data$26 , \r__data$21 , \r__data$16 , \r__data$11 , r__data };
   assign \w__en$44  = w__en;
-  assign \w__data$43  = \data$7 [15];
+  assign \w__data$43  = \data$7 [15:14];
   assign \w__addr$42  = w__addr;
   assign \r__addr$40  = r__addr;
   assign \w__en$39  = w__en;
-  assign \w__data$38  = \data$7 [14];
+  assign \w__data$38  = \data$7 [13:12];
   assign \w__addr$37  = w__addr;
   assign \r__addr$35  = r__addr;
   assign \w__en$34  = w__en;
-  assign \w__data$33  = \data$7 [13];
+  assign \w__data$33  = \data$7 [11:10];
   assign \w__addr$32  = w__addr;
   assign \r__addr$30  = r__addr;
   assign \w__en$29  = w__en;
-  assign \w__data$28  = \data$7 [12];
+  assign \w__data$28  = \data$7 [9:8];
   assign \w__addr$27  = w__addr;
   assign \r__addr$25  = r__addr;
   assign \w__en$24  = w__en;
-  assign \w__data$23  = \data$7 [11];
+  assign \w__data$23  = \data$7 [7:6];
   assign \w__addr$22  = w__addr;
   assign \r__addr$20  = r__addr;
   assign \w__en$19  = w__en;
-  assign \w__data$18  = \data$7 [10];
+  assign \w__data$18  = \data$7 [5:4];
   assign \w__addr$17  = w__addr;
   assign \r__addr$15  = r__addr;
   assign \w__en$14  = w__en;
-  assign \w__data$13  = \data$7 [9];
+  assign \w__data$13  = \data$7 [3:2];
   assign \w__addr$12  = w__addr;
   assign \r__addr$10  = r__addr;
   assign en = w__en;
-  assign w__data = \data$7 [8:0];
+  assign w__data = \data$7 [1:0];
   assign \addr$5  = w__addr;
   assign addr = r__addr;
 endmodule
 
 module \agentsat_entry.solver.core.asg_a (rst, data, w__en, w__addr, w__data, r__addr, clk);
-  wire [13:0] addr;
-  wire [13:0] \addr$5 ;
+  wire [12:0] addr;
+  wire [12:0] \addr$5 ;
   input clk;
   wire clk;
   output data;
   wire data;
   wire \data$7 ;
   wire en;
-  input [13:0] r__addr;
-  wire [13:0] r__addr;
+  input [12:0] r__addr;
+  wire [12:0] r__addr;
   wire r__data;
   input rst;
   wire rst;
-  input [13:0] w__addr;
-  wire [13:0] w__addr;
+  input [12:0] w__addr;
+  wire [12:0] w__addr;
   input w__data;
   wire w__data;
   input w__en;
   wire w__en;
-  reg [0:0] mem0 [16383:0];
+  reg [0:0] mem0 [8191:0];
   always @(posedge clk) begin
     if (w__en)
       mem0[w__addr] <= w__data;
@@ -7021,26 +7021,26 @@ module \agentsat_entry.solver.core.asg_a (rst, data, w__en, w__addr, w__data, r_
 endmodule
 
 module \agentsat_entry.solver.core.asg_v (rst, data, w__en, w__addr, w__data, r__addr, clk);
-  wire [13:0] addr;
-  wire [13:0] \addr$5 ;
+  wire [12:0] addr;
+  wire [12:0] \addr$5 ;
   input clk;
   wire clk;
   output data;
   wire data;
   wire \data$7 ;
   wire en;
-  input [13:0] r__addr;
-  wire [13:0] r__addr;
+  input [12:0] r__addr;
+  wire [12:0] r__addr;
   wire r__data;
   input rst;
   wire rst;
-  input [13:0] w__addr;
-  wire [13:0] w__addr;
+  input [12:0] w__addr;
+  wire [12:0] w__addr;
   input w__data;
   wire w__data;
   input w__en;
   wire w__en;
-  reg [0:0] mem0 [16383:0];
+  reg [0:0] mem0 [8191:0];
   always @(posedge clk) begin
     if (w__en)
       mem0[w__addr] <= w__data;
@@ -7058,8 +7058,8 @@ module \agentsat_entry.solver.core.asg_v (rst, data, w__en, w__addr, w__data, r_
 endmodule
 
 module \agentsat_entry.solver.core.heap (rst, w__en, w__addr, \data$7 , r__addr, data, clk);
-  wire [13:0] addr;
-  wire [13:0] \addr$5 ;
+  wire [12:0] addr;
+  wire [12:0] \addr$5 ;
   input clk;
   wire clk;
   output [13:0] data;
@@ -7067,170 +7067,38 @@ module \agentsat_entry.solver.core.heap (rst, w__en, w__addr, \data$7 , r__addr,
   input [13:0] \data$7 ;
   wire [13:0] \data$7 ;
   wire en;
-  input [13:0] r__addr;
-  wire [13:0] r__addr;
-  wire [13:0] \r__addr$10 ;
-  wire [13:0] \r__addr$15 ;
-  wire [13:0] \r__addr$20 ;
-  wire [13:0] \r__addr$25 ;
-  wire [13:0] \r__addr$30 ;
-  wire [8:0] r__data;
-  wire \r__data$11 ;
-  wire \r__data$16 ;
-  wire \r__data$21 ;
-  wire \r__data$26 ;
-  wire \r__data$31 ;
+  input [12:0] r__addr;
+  wire [12:0] r__addr;
+  wire [12:0] \r__addr$10 ;
+  wire [12:0] \r__addr$15 ;
+  wire [12:0] \r__addr$20 ;
+  wire [12:0] \r__addr$25 ;
+  wire [12:0] \r__addr$30 ;
+  wire [12:0] \r__addr$35 ;
+  wire [1:0] r__data;
+  wire [1:0] \r__data$11 ;
+  wire [1:0] \r__data$16 ;
+  wire [1:0] \r__data$21 ;
+  wire [1:0] \r__data$26 ;
+  wire [1:0] \r__data$31 ;
+  wire [1:0] \r__data$36 ;
   input rst;
   wire rst;
-  input [13:0] w__addr;
-  wire [13:0] w__addr;
-  wire [13:0] \w__addr$12 ;
-  wire [13:0] \w__addr$17 ;
-  wire [13:0] \w__addr$22 ;
-  wire [13:0] \w__addr$27 ;
-  wire [13:0] \w__addr$32 ;
-  wire [8:0] w__data;
-  wire \w__data$13 ;
-  wire \w__data$18 ;
-  wire \w__data$23 ;
-  wire \w__data$28 ;
-  wire \w__data$33 ;
-  input w__en;
-  wire w__en;
-  wire \w__en$14 ;
-  wire \w__en$19 ;
-  wire \w__en$24 ;
-  wire \w__en$29 ;
-  wire \w__en$34 ;
-  reg [8:0] mem0 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem0[w__addr] <= \data$7 [8:0];
-  end
-  reg [8:0] _12_;
-  always @(posedge clk) begin
-    _12_ <= mem0[r__addr];
-  end
-  assign r__data = _12_;
-  reg [0:0] mem10 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem10[w__addr] <= \data$7 [10];
-  end
-  reg [0:0] _13_;
-  always @(posedge clk) begin
-    _13_ <= mem10[r__addr];
-  end
-  assign \r__data$16  = _13_;
-  reg [0:0] mem11 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem11[w__addr] <= \data$7 [11];
-  end
-  reg [0:0] _14_;
-  always @(posedge clk) begin
-    _14_ <= mem11[r__addr];
-  end
-  assign \r__data$21  = _14_;
-  reg [0:0] mem12 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem12[w__addr] <= \data$7 [12];
-  end
-  reg [0:0] _15_;
-  always @(posedge clk) begin
-    _15_ <= mem12[r__addr];
-  end
-  assign \r__data$26  = _15_;
-  reg [0:0] mem13 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem13[w__addr] <= \data$7 [13];
-  end
-  reg [0:0] _16_;
-  always @(posedge clk) begin
-    _16_ <= mem13[r__addr];
-  end
-  assign \r__data$31  = _16_;
-  reg [0:0] mem9 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem9[w__addr] <= \data$7 [9];
-  end
-  reg [0:0] _17_;
-  always @(posedge clk) begin
-    _17_ <= mem9[r__addr];
-  end
-  assign \r__data$11  = _17_;
-  assign data = { \r__data$31 , \r__data$26 , \r__data$21 , \r__data$16 , \r__data$11 , r__data };
-  assign \w__en$34  = w__en;
-  assign \w__data$33  = \data$7 [13];
-  assign \w__addr$32  = w__addr;
-  assign \r__addr$30  = r__addr;
-  assign \w__en$29  = w__en;
-  assign \w__data$28  = \data$7 [12];
-  assign \w__addr$27  = w__addr;
-  assign \r__addr$25  = r__addr;
-  assign \w__en$24  = w__en;
-  assign \w__data$23  = \data$7 [11];
-  assign \w__addr$22  = w__addr;
-  assign \r__addr$20  = r__addr;
-  assign \w__en$19  = w__en;
-  assign \w__data$18  = \data$7 [10];
-  assign \w__addr$17  = w__addr;
-  assign \r__addr$15  = r__addr;
-  assign \w__en$14  = w__en;
-  assign \w__data$13  = \data$7 [9];
-  assign \w__addr$12  = w__addr;
-  assign \r__addr$10  = r__addr;
-  assign en = w__en;
-  assign w__data = \data$7 [8:0];
-  assign \addr$5  = w__addr;
-  assign addr = r__addr;
-endmodule
-
-module \agentsat_entry.solver.core.hpos (rst, w__en, w__addr, \data$7 , r__addr, data, clk);
-  wire [13:0] addr;
-  wire [13:0] \addr$5 ;
-  input clk;
-  wire clk;
-  output [14:0] data;
-  wire [14:0] data;
-  input [14:0] \data$7 ;
-  wire [14:0] \data$7 ;
-  wire en;
-  input [13:0] r__addr;
-  wire [13:0] r__addr;
-  wire [13:0] \r__addr$10 ;
-  wire [13:0] \r__addr$15 ;
-  wire [13:0] \r__addr$20 ;
-  wire [13:0] \r__addr$25 ;
-  wire [13:0] \r__addr$30 ;
-  wire [13:0] \r__addr$35 ;
-  wire [8:0] r__data;
-  wire \r__data$11 ;
-  wire \r__data$16 ;
-  wire \r__data$21 ;
-  wire \r__data$26 ;
-  wire \r__data$31 ;
-  wire \r__data$36 ;
-  input rst;
-  wire rst;
-  input [13:0] w__addr;
-  wire [13:0] w__addr;
-  wire [13:0] \w__addr$12 ;
-  wire [13:0] \w__addr$17 ;
-  wire [13:0] \w__addr$22 ;
-  wire [13:0] \w__addr$27 ;
-  wire [13:0] \w__addr$32 ;
-  wire [13:0] \w__addr$37 ;
-  wire [8:0] w__data;
-  wire \w__data$13 ;
-  wire \w__data$18 ;
-  wire \w__data$23 ;
-  wire \w__data$28 ;
-  wire \w__data$33 ;
-  wire \w__data$38 ;
+  input [12:0] w__addr;
+  wire [12:0] w__addr;
+  wire [12:0] \w__addr$12 ;
+  wire [12:0] \w__addr$17 ;
+  wire [12:0] \w__addr$22 ;
+  wire [12:0] \w__addr$27 ;
+  wire [12:0] \w__addr$32 ;
+  wire [12:0] \w__addr$37 ;
+  wire [1:0] w__data;
+  wire [1:0] \w__data$13 ;
+  wire [1:0] \w__data$18 ;
+  wire [1:0] \w__data$23 ;
+  wire [1:0] \w__data$28 ;
+  wire [1:0] \w__data$33 ;
+  wire [1:0] \w__data$38 ;
   input w__en;
   wire w__en;
   wire \w__en$14 ;
@@ -7239,99 +7107,193 @@ module \agentsat_entry.solver.core.hpos (rst, w__en, w__addr, \data$7 , r__addr,
   wire \w__en$29 ;
   wire \w__en$34 ;
   wire \w__en$39 ;
-  reg [8:0] mem0 [16383:0];
+  reg [1:0] mem0 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem0[w__addr] <= \data$7 [8:0];
+      mem0[w__addr] <= \data$7 [1:0];
   end
-  reg [8:0] _14_;
+  reg [1:0] _14_;
   always @(posedge clk) begin
     _14_ <= mem0[r__addr];
   end
   assign r__data = _14_;
-  reg [0:0] mem10 [16383:0];
+  reg [1:0] mem10 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem10[w__addr] <= \data$7 [10];
+      mem10[w__addr] <= \data$7 [11:10];
   end
-  reg [0:0] _15_;
+  reg [1:0] _15_;
   always @(posedge clk) begin
     _15_ <= mem10[r__addr];
   end
-  assign \r__data$16  = _15_;
-  reg [0:0] mem11 [16383:0];
+  assign \r__data$31  = _15_;
+  reg [1:0] mem12 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem11[w__addr] <= \data$7 [11];
+      mem12[w__addr] <= \data$7 [13:12];
   end
-  reg [0:0] _16_;
+  reg [1:0] _16_;
   always @(posedge clk) begin
-    _16_ <= mem11[r__addr];
+    _16_ <= mem12[r__addr];
   end
-  assign \r__data$21  = _16_;
-  reg [0:0] mem12 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem12[w__addr] <= \data$7 [12];
-  end
-  reg [0:0] _17_;
-  always @(posedge clk) begin
-    _17_ <= mem12[r__addr];
-  end
-  assign \r__data$26  = _17_;
-  reg [0:0] mem13 [16383:0];
+  assign \r__data$36  = _16_;
+  reg [1:0] mem2 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem13[w__addr] <= \data$7 [13];
+      mem2[w__addr] <= \data$7 [3:2];
   end
-  reg [0:0] _18_;
+  reg [1:0] _17_;
   always @(posedge clk) begin
-    _18_ <= mem13[r__addr];
+    _17_ <= mem2[r__addr];
   end
-  assign \r__data$31  = _18_;
-  reg [0:0] mem14 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem14[w__addr] <= \data$7 [14];
-  end
-  reg [0:0] _19_;
-  always @(posedge clk) begin
-    _19_ <= mem14[r__addr];
-  end
-  assign \r__data$36  = _19_;
-  reg [0:0] mem9 [16383:0];
+  assign \r__data$11  = _17_;
+  reg [1:0] mem4 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem9[w__addr] <= \data$7 [9];
+      mem4[w__addr] <= \data$7 [5:4];
   end
-  reg [0:0] _20_;
+  reg [1:0] _18_;
   always @(posedge clk) begin
-    _20_ <= mem9[r__addr];
+    _18_ <= mem4[r__addr];
   end
-  assign \r__data$11  = _20_;
+  assign \r__data$16  = _18_;
+  reg [1:0] mem6 [8191:0];
+  always @(posedge clk) begin
+    if (w__en)
+      mem6[w__addr] <= \data$7 [7:6];
+  end
+  reg [1:0] _19_;
+  always @(posedge clk) begin
+    _19_ <= mem6[r__addr];
+  end
+  assign \r__data$21  = _19_;
+  reg [1:0] mem8 [8191:0];
+  always @(posedge clk) begin
+    if (w__en)
+      mem8[w__addr] <= \data$7 [9:8];
+  end
+  reg [1:0] _20_;
+  always @(posedge clk) begin
+    _20_ <= mem8[r__addr];
+  end
+  assign \r__data$26  = _20_;
   assign data = { \r__data$36 , \r__data$31 , \r__data$26 , \r__data$21 , \r__data$16 , \r__data$11 , r__data };
   assign \w__en$39  = w__en;
-  assign \w__data$38  = \data$7 [14];
+  assign \w__data$38  = \data$7 [13:12];
   assign \w__addr$37  = w__addr;
   assign \r__addr$35  = r__addr;
   assign \w__en$34  = w__en;
-  assign \w__data$33  = \data$7 [13];
+  assign \w__data$33  = \data$7 [11:10];
   assign \w__addr$32  = w__addr;
   assign \r__addr$30  = r__addr;
   assign \w__en$29  = w__en;
-  assign \w__data$28  = \data$7 [12];
+  assign \w__data$28  = \data$7 [9:8];
   assign \w__addr$27  = w__addr;
   assign \r__addr$25  = r__addr;
   assign \w__en$24  = w__en;
-  assign \w__data$23  = \data$7 [11];
+  assign \w__data$23  = \data$7 [7:6];
   assign \w__addr$22  = w__addr;
   assign \r__addr$20  = r__addr;
   assign \w__en$19  = w__en;
-  assign \w__data$18  = \data$7 [10];
+  assign \w__data$18  = \data$7 [5:4];
   assign \w__addr$17  = w__addr;
   assign \r__addr$15  = r__addr;
   assign \w__en$14  = w__en;
-  assign \w__data$13  = \data$7 [9];
+  assign \w__data$13  = \data$7 [3:2];
+  assign \w__addr$12  = w__addr;
+  assign \r__addr$10  = r__addr;
+  assign en = w__en;
+  assign w__data = \data$7 [1:0];
+  assign \addr$5  = w__addr;
+  assign addr = r__addr;
+endmodule
+
+module \agentsat_entry.solver.core.hpos (rst, w__en, w__addr, \data$7 , r__addr, data, clk);
+  wire [12:0] addr;
+  wire [12:0] \addr$5 ;
+  input clk;
+  wire clk;
+  output [14:0] data;
+  wire [14:0] data;
+  input [14:0] \data$7 ;
+  wire [14:0] \data$7 ;
+  wire en;
+  input [12:0] r__addr;
+  wire [12:0] r__addr;
+  wire [12:0] \r__addr$10 ;
+  wire [12:0] \r__addr$15 ;
+  wire [12:0] \r__addr$20 ;
+  wire [8:0] r__data;
+  wire [1:0] \r__data$11 ;
+  wire [1:0] \r__data$16 ;
+  wire [1:0] \r__data$21 ;
+  input rst;
+  wire rst;
+  input [12:0] w__addr;
+  wire [12:0] w__addr;
+  wire [12:0] \w__addr$12 ;
+  wire [12:0] \w__addr$17 ;
+  wire [12:0] \w__addr$22 ;
+  wire [8:0] w__data;
+  wire [1:0] \w__data$13 ;
+  wire [1:0] \w__data$18 ;
+  wire [1:0] \w__data$23 ;
+  input w__en;
+  wire w__en;
+  wire \w__en$14 ;
+  wire \w__en$19 ;
+  wire \w__en$24 ;
+  reg [8:0] mem0 [8191:0];
+  always @(posedge clk) begin
+    if (w__en)
+      mem0[w__addr] <= \data$7 [8:0];
+  end
+  reg [8:0] _8_;
+  always @(posedge clk) begin
+    _8_ <= mem0[r__addr];
+  end
+  assign r__data = _8_;
+  reg [1:0] mem11 [8191:0];
+  always @(posedge clk) begin
+    if (w__en)
+      mem11[w__addr] <= \data$7 [12:11];
+  end
+  reg [1:0] _9_;
+  always @(posedge clk) begin
+    _9_ <= mem11[r__addr];
+  end
+  assign \r__data$16  = _9_;
+  reg [1:0] mem13 [8191:0];
+  always @(posedge clk) begin
+    if (w__en)
+      mem13[w__addr] <= \data$7 [14:13];
+  end
+  reg [1:0] _10_;
+  always @(posedge clk) begin
+    _10_ <= mem13[r__addr];
+  end
+  assign \r__data$21  = _10_;
+  reg [1:0] mem9 [8191:0];
+  always @(posedge clk) begin
+    if (w__en)
+      mem9[w__addr] <= \data$7 [10:9];
+  end
+  reg [1:0] _11_;
+  always @(posedge clk) begin
+    _11_ <= mem9[r__addr];
+  end
+  assign \r__data$11  = _11_;
+  assign data = { \r__data$21 , \r__data$16 , \r__data$11 , r__data };
+  assign \w__en$24  = w__en;
+  assign \w__data$23  = \data$7 [14:13];
+  assign \w__addr$22  = w__addr;
+  assign \r__addr$20  = r__addr;
+  assign \w__en$19  = w__en;
+  assign \w__data$18  = \data$7 [12:11];
+  assign \w__addr$17  = w__addr;
+  assign \r__addr$15  = r__addr;
+  assign \w__en$14  = w__en;
+  assign \w__data$13  = \data$7 [10:9];
   assign \w__addr$12  = w__addr;
   assign \r__addr$10  = r__addr;
   assign en = w__en;
@@ -7341,8 +7303,8 @@ module \agentsat_entry.solver.core.hpos (rst, w__en, w__addr, \data$7 , r__addr,
 endmodule
 
 module \agentsat_entry.solver.core.lr (rst, w__en, w__addr, \data$7 , r__addr, data, clk);
-  wire [13:0] addr;
-  wire [13:0] \addr$5 ;
+  wire [12:0] addr;
+  wire [12:0] \addr$5 ;
   input clk;
   wire clk;
   output [30:0] data;
@@ -7350,131 +7312,93 @@ module \agentsat_entry.solver.core.lr (rst, w__en, w__addr, \data$7 , r__addr, d
   input [30:0] \data$7 ;
   wire [30:0] \data$7 ;
   wire en;
-  input [13:0] r__addr;
-  wire [13:0] r__addr;
-  wire [13:0] \r__addr$10 ;
-  wire [13:0] \r__addr$15 ;
-  wire [13:0] \r__addr$20 ;
-  wire [13:0] \r__addr$25 ;
-  wire [13:0] \r__addr$30 ;
-  wire [13:0] \r__addr$35 ;
+  input [12:0] r__addr;
+  wire [12:0] r__addr;
+  wire [12:0] \r__addr$10 ;
+  wire [12:0] \r__addr$15 ;
+  wire [12:0] \r__addr$20 ;
+  wire [12:0] \r__addr$25 ;
   wire [8:0] r__data;
   wire [8:0] \r__data$11 ;
   wire [8:0] \r__data$16 ;
-  wire \r__data$21 ;
-  wire \r__data$26 ;
-  wire \r__data$31 ;
-  wire \r__data$36 ;
+  wire [1:0] \r__data$21 ;
+  wire [1:0] \r__data$26 ;
   input rst;
   wire rst;
-  input [13:0] w__addr;
-  wire [13:0] w__addr;
-  wire [13:0] \w__addr$12 ;
-  wire [13:0] \w__addr$17 ;
-  wire [13:0] \w__addr$22 ;
-  wire [13:0] \w__addr$27 ;
-  wire [13:0] \w__addr$32 ;
-  wire [13:0] \w__addr$37 ;
+  input [12:0] w__addr;
+  wire [12:0] w__addr;
+  wire [12:0] \w__addr$12 ;
+  wire [12:0] \w__addr$17 ;
+  wire [12:0] \w__addr$22 ;
+  wire [12:0] \w__addr$27 ;
   wire [8:0] w__data;
   wire [8:0] \w__data$13 ;
   wire [8:0] \w__data$18 ;
-  wire \w__data$23 ;
-  wire \w__data$28 ;
-  wire \w__data$33 ;
-  wire \w__data$38 ;
+  wire [1:0] \w__data$23 ;
+  wire [1:0] \w__data$28 ;
   input w__en;
   wire w__en;
   wire \w__en$14 ;
   wire \w__en$19 ;
   wire \w__en$24 ;
   wire \w__en$29 ;
-  wire \w__en$34 ;
-  wire \w__en$39 ;
-  reg [8:0] mem0 [16383:0];
+  reg [8:0] mem0 [8191:0];
   always @(posedge clk) begin
     if (w__en)
       mem0[w__addr] <= \data$7 [8:0];
   end
-  reg [8:0] _14_;
+  reg [8:0] _10_;
   always @(posedge clk) begin
-    _14_ <= mem0[r__addr];
+    _10_ <= mem0[r__addr];
   end
-  assign r__data = _14_;
-  reg [8:0] mem18 [16383:0];
+  assign r__data = _10_;
+  reg [8:0] mem18 [8191:0];
   always @(posedge clk) begin
     if (w__en)
       mem18[w__addr] <= \data$7 [26:18];
   end
-  reg [8:0] _15_;
+  reg [8:0] _11_;
   always @(posedge clk) begin
-    _15_ <= mem18[r__addr];
+    _11_ <= mem18[r__addr];
   end
-  assign \r__data$16  = _15_;
-  reg [0:0] mem27 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem27[w__addr] <= \data$7 [27];
-  end
-  reg [0:0] _16_;
-  always @(posedge clk) begin
-    _16_ <= mem27[r__addr];
-  end
-  assign \r__data$21  = _16_;
-  reg [0:0] mem28 [16383:0];
+  assign \r__data$16  = _11_;
+  reg [1:0] mem27 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem28[w__addr] <= \data$7 [28];
+      mem27[w__addr] <= \data$7 [28:27];
   end
-  reg [0:0] _17_;
+  reg [1:0] _12_;
   always @(posedge clk) begin
-    _17_ <= mem28[r__addr];
+    _12_ <= mem27[r__addr];
   end
-  assign \r__data$26  = _17_;
-  reg [0:0] mem29 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem29[w__addr] <= \data$7 [29];
-  end
-  reg [0:0] _18_;
-  always @(posedge clk) begin
-    _18_ <= mem29[r__addr];
-  end
-  assign \r__data$31  = _18_;
-  reg [0:0] mem30 [16383:0];
+  assign \r__data$21  = _12_;
+  reg [1:0] mem29 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem30[w__addr] <= \data$7 [30];
+      mem29[w__addr] <= \data$7 [30:29];
   end
-  reg [0:0] _19_;
+  reg [1:0] _13_;
   always @(posedge clk) begin
-    _19_ <= mem30[r__addr];
+    _13_ <= mem29[r__addr];
   end
-  assign \r__data$36  = _19_;
-  reg [8:0] mem9 [16383:0];
+  assign \r__data$26  = _13_;
+  reg [8:0] mem9 [8191:0];
   always @(posedge clk) begin
     if (w__en)
       mem9[w__addr] <= \data$7 [17:9];
   end
-  reg [8:0] _20_;
+  reg [8:0] _14_;
   always @(posedge clk) begin
-    _20_ <= mem9[r__addr];
+    _14_ <= mem9[r__addr];
   end
-  assign \r__data$11  = _20_;
-  assign data = { \r__data$36 , \r__data$31 , \r__data$26 , \r__data$21 , \r__data$16 , \r__data$11 , r__data };
-  assign \w__en$39  = w__en;
-  assign \w__data$38  = \data$7 [30];
-  assign \w__addr$37  = w__addr;
-  assign \r__addr$35  = r__addr;
-  assign \w__en$34  = w__en;
-  assign \w__data$33  = \data$7 [29];
-  assign \w__addr$32  = w__addr;
-  assign \r__addr$30  = r__addr;
+  assign \r__data$11  = _14_;
+  assign data = { \r__data$26 , \r__data$21 , \r__data$16 , \r__data$11 , r__data };
   assign \w__en$29  = w__en;
-  assign \w__data$28  = \data$7 [28];
+  assign \w__data$28  = \data$7 [30:29];
   assign \w__addr$27  = w__addr;
   assign \r__addr$25  = r__addr;
   assign \w__en$24  = w__en;
-  assign \w__data$23  = \data$7 [27];
+  assign \w__data$23  = \data$7 [28:27];
   assign \w__addr$22  = w__addr;
   assign \r__addr$20  = r__addr;
   assign \w__en$19  = w__en;
@@ -7492,26 +7416,26 @@ module \agentsat_entry.solver.core.lr (rst, w__en, w__addr, \data$7 , r__addr, d
 endmodule
 
 module \agentsat_entry.solver.core.seen (rst, data, w__en, w__addr, w__data, r__addr, clk);
-  wire [13:0] addr;
-  wire [13:0] \addr$5 ;
+  wire [12:0] addr;
+  wire [12:0] \addr$5 ;
   input clk;
   wire clk;
   output data;
   wire data;
   wire \data$7 ;
   wire en;
-  input [13:0] r__addr;
-  wire [13:0] r__addr;
+  input [12:0] r__addr;
+  wire [12:0] r__addr;
   wire r__data;
   input rst;
   wire rst;
-  input [13:0] w__addr;
-  wire [13:0] w__addr;
+  input [12:0] w__addr;
+  wire [12:0] w__addr;
   input w__data;
   wire w__data;
   input w__en;
   wire w__en;
-  reg [0:0] mem0 [16383:0];
+  reg [0:0] mem0 [8191:0];
   always @(posedge clk) begin
     if (w__en)
       mem0[w__addr] <= w__data;
@@ -7891,8 +7815,8 @@ module \agentsat_entry.solver.core.store (rst, en, w__addr, \data$7 , r__addr, m
 endmodule
 
 module \agentsat_entry.solver.core.trail (rst, w__en, w__addr, \data$7 , r__addr, data, clk);
-  wire [13:0] addr;
-  wire [13:0] \addr$5 ;
+  wire [12:0] addr;
+  wire [12:0] \addr$5 ;
   input clk;
   wire clk;
   output [15:0] data;
@@ -7900,42 +7824,42 @@ module \agentsat_entry.solver.core.trail (rst, w__en, w__addr, \data$7 , r__addr
   input [15:0] \data$7 ;
   wire [15:0] \data$7 ;
   wire en;
-  input [13:0] r__addr;
-  wire [13:0] r__addr;
-  wire [13:0] \r__addr$10 ;
-  wire [13:0] \r__addr$15 ;
-  wire [13:0] \r__addr$20 ;
-  wire [13:0] \r__addr$25 ;
-  wire [13:0] \r__addr$30 ;
-  wire [13:0] \r__addr$35 ;
-  wire [13:0] \r__addr$40 ;
-  wire [8:0] r__data;
-  wire \r__data$11 ;
-  wire \r__data$16 ;
-  wire \r__data$21 ;
-  wire \r__data$26 ;
-  wire \r__data$31 ;
-  wire \r__data$36 ;
-  wire \r__data$41 ;
+  input [12:0] r__addr;
+  wire [12:0] r__addr;
+  wire [12:0] \r__addr$10 ;
+  wire [12:0] \r__addr$15 ;
+  wire [12:0] \r__addr$20 ;
+  wire [12:0] \r__addr$25 ;
+  wire [12:0] \r__addr$30 ;
+  wire [12:0] \r__addr$35 ;
+  wire [12:0] \r__addr$40 ;
+  wire [1:0] r__data;
+  wire [1:0] \r__data$11 ;
+  wire [1:0] \r__data$16 ;
+  wire [1:0] \r__data$21 ;
+  wire [1:0] \r__data$26 ;
+  wire [1:0] \r__data$31 ;
+  wire [1:0] \r__data$36 ;
+  wire [1:0] \r__data$41 ;
   input rst;
   wire rst;
-  input [13:0] w__addr;
-  wire [13:0] w__addr;
-  wire [13:0] \w__addr$12 ;
-  wire [13:0] \w__addr$17 ;
-  wire [13:0] \w__addr$22 ;
-  wire [13:0] \w__addr$27 ;
-  wire [13:0] \w__addr$32 ;
-  wire [13:0] \w__addr$37 ;
-  wire [13:0] \w__addr$42 ;
-  wire [8:0] w__data;
-  wire \w__data$13 ;
-  wire \w__data$18 ;
-  wire \w__data$23 ;
-  wire \w__data$28 ;
-  wire \w__data$33 ;
-  wire \w__data$38 ;
-  wire \w__data$43 ;
+  input [12:0] w__addr;
+  wire [12:0] w__addr;
+  wire [12:0] \w__addr$12 ;
+  wire [12:0] \w__addr$17 ;
+  wire [12:0] \w__addr$22 ;
+  wire [12:0] \w__addr$27 ;
+  wire [12:0] \w__addr$32 ;
+  wire [12:0] \w__addr$37 ;
+  wire [12:0] \w__addr$42 ;
+  wire [1:0] w__data;
+  wire [1:0] \w__data$13 ;
+  wire [1:0] \w__data$18 ;
+  wire [1:0] \w__data$23 ;
+  wire [1:0] \w__data$28 ;
+  wire [1:0] \w__data$33 ;
+  wire [1:0] \w__data$38 ;
+  wire [1:0] \w__data$43 ;
   input w__en;
   wire w__en;
   wire \w__en$14 ;
@@ -7945,117 +7869,117 @@ module \agentsat_entry.solver.core.trail (rst, w__en, w__addr, \data$7 , r__addr
   wire \w__en$34 ;
   wire \w__en$39 ;
   wire \w__en$44 ;
-  reg [8:0] mem0 [16383:0];
+  reg [1:0] mem0 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem0[w__addr] <= \data$7 [8:0];
+      mem0[w__addr] <= \data$7 [1:0];
   end
-  reg [8:0] _16_;
+  reg [1:0] _16_;
   always @(posedge clk) begin
     _16_ <= mem0[r__addr];
   end
   assign r__data = _16_;
-  reg [0:0] mem10 [16383:0];
+  reg [1:0] mem10 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem10[w__addr] <= \data$7 [10];
+      mem10[w__addr] <= \data$7 [11:10];
   end
-  reg [0:0] _17_;
+  reg [1:0] _17_;
   always @(posedge clk) begin
     _17_ <= mem10[r__addr];
   end
-  assign \r__data$16  = _17_;
-  reg [0:0] mem11 [16383:0];
+  assign \r__data$31  = _17_;
+  reg [1:0] mem12 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem11[w__addr] <= \data$7 [11];
+      mem12[w__addr] <= \data$7 [13:12];
   end
-  reg [0:0] _18_;
+  reg [1:0] _18_;
   always @(posedge clk) begin
-    _18_ <= mem11[r__addr];
+    _18_ <= mem12[r__addr];
   end
-  assign \r__data$21  = _18_;
-  reg [0:0] mem12 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem12[w__addr] <= \data$7 [12];
-  end
-  reg [0:0] _19_;
-  always @(posedge clk) begin
-    _19_ <= mem12[r__addr];
-  end
-  assign \r__data$26  = _19_;
-  reg [0:0] mem13 [16383:0];
+  assign \r__data$36  = _18_;
+  reg [1:0] mem14 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem13[w__addr] <= \data$7 [13];
+      mem14[w__addr] <= \data$7 [15:14];
   end
-  reg [0:0] _20_;
+  reg [1:0] _19_;
   always @(posedge clk) begin
-    _20_ <= mem13[r__addr];
+    _19_ <= mem14[r__addr];
   end
-  assign \r__data$31  = _20_;
-  reg [0:0] mem14 [16383:0];
-  always @(posedge clk) begin
-    if (w__en)
-      mem14[w__addr] <= \data$7 [14];
-  end
-  reg [0:0] _21_;
-  always @(posedge clk) begin
-    _21_ <= mem14[r__addr];
-  end
-  assign \r__data$36  = _21_;
-  reg [0:0] mem15 [16383:0];
+  assign \r__data$41  = _19_;
+  reg [1:0] mem2 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem15[w__addr] <= \data$7 [15];
+      mem2[w__addr] <= \data$7 [3:2];
   end
-  reg [0:0] _22_;
+  reg [1:0] _20_;
   always @(posedge clk) begin
-    _22_ <= mem15[r__addr];
+    _20_ <= mem2[r__addr];
   end
-  assign \r__data$41  = _22_;
-  reg [0:0] mem9 [16383:0];
+  assign \r__data$11  = _20_;
+  reg [1:0] mem4 [8191:0];
   always @(posedge clk) begin
     if (w__en)
-      mem9[w__addr] <= \data$7 [9];
+      mem4[w__addr] <= \data$7 [5:4];
   end
-  reg [0:0] _23_;
+  reg [1:0] _21_;
   always @(posedge clk) begin
-    _23_ <= mem9[r__addr];
+    _21_ <= mem4[r__addr];
   end
-  assign \r__data$11  = _23_;
+  assign \r__data$16  = _21_;
+  reg [1:0] mem6 [8191:0];
+  always @(posedge clk) begin
+    if (w__en)
+      mem6[w__addr] <= \data$7 [7:6];
+  end
+  reg [1:0] _22_;
+  always @(posedge clk) begin
+    _22_ <= mem6[r__addr];
+  end
+  assign \r__data$21  = _22_;
+  reg [1:0] mem8 [8191:0];
+  always @(posedge clk) begin
+    if (w__en)
+      mem8[w__addr] <= \data$7 [9:8];
+  end
+  reg [1:0] _23_;
+  always @(posedge clk) begin
+    _23_ <= mem8[r__addr];
+  end
+  assign \r__data$26  = _23_;
   assign data = { \r__data$41 , \r__data$36 , \r__data$31 , \r__data$26 , \r__data$21 , \r__data$16 , \r__data$11 , r__data };
   assign \w__en$44  = w__en;
-  assign \w__data$43  = \data$7 [15];
+  assign \w__data$43  = \data$7 [15:14];
   assign \w__addr$42  = w__addr;
   assign \r__addr$40  = r__addr;
   assign \w__en$39  = w__en;
-  assign \w__data$38  = \data$7 [14];
+  assign \w__data$38  = \data$7 [13:12];
   assign \w__addr$37  = w__addr;
   assign \r__addr$35  = r__addr;
   assign \w__en$34  = w__en;
-  assign \w__data$33  = \data$7 [13];
+  assign \w__data$33  = \data$7 [11:10];
   assign \w__addr$32  = w__addr;
   assign \r__addr$30  = r__addr;
   assign \w__en$29  = w__en;
-  assign \w__data$28  = \data$7 [12];
+  assign \w__data$28  = \data$7 [9:8];
   assign \w__addr$27  = w__addr;
   assign \r__addr$25  = r__addr;
   assign \w__en$24  = w__en;
-  assign \w__data$23  = \data$7 [11];
+  assign \w__data$23  = \data$7 [7:6];
   assign \w__addr$22  = w__addr;
   assign \r__addr$20  = r__addr;
   assign \w__en$19  = w__en;
-  assign \w__data$18  = \data$7 [10];
+  assign \w__data$18  = \data$7 [5:4];
   assign \w__addr$17  = w__addr;
   assign \r__addr$15  = r__addr;
   assign \w__en$14  = w__en;
-  assign \w__data$13  = \data$7 [9];
+  assign \w__data$13  = \data$7 [3:2];
   assign \w__addr$12  = w__addr;
   assign \r__addr$10  = r__addr;
   assign en = w__en;
-  assign w__data = \data$7 [8:0];
+  assign w__data = \data$7 [1:0];
   assign \addr$5  = w__addr;
   assign addr = r__addr;
 endmodule

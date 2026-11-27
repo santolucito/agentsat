@@ -96,14 +96,14 @@ Memories (one read and one write port each, block RAM)
                        A pointer is [16:0] header address, [17] watch slot.
                        Address 0 is the null pointer (it is a head, never a
                        clause).
-    asg_a  16384 x  1  assigned
-    asg_v  16384 x  1  value (kept on unassign: saved phase; the model)
-    seen   16384 x  1  analysis mark
-    lr     16384 x 31  [13:0] decision level, [30:14] reason
-    trail  16384 x 16  [13:0] variable, [14] value, [15] decision
-    heap   16384 x 14  decision heap: variable at each position
-    hpos   16384 x 15  [13:0] heap position of each variable, [14] in heap
-    act    16384 x 16  activity
+    asg_a   8192 x  1  assigned
+    asg_v   8192 x  1  value (kept on unassign: saved phase; the model)
+    seen    8192 x  1  analysis mark
+    lr      8192 x 31  [13:0] decision level, [30:14] reason
+    trail   8192 x 16  [13:0] variable, [14] value, [15] decision
+    heap    8192 x 14  decision heap: variable at each position
+    hpos    8192 x 15  [13:0] heap position of each variable, [14] in heap
+    act     8192 x 16  activity
 Each is a `Bram`. The competition build (Solver.bram_primitives = False)
 makes it one amaranth Memory per column group of the block plan below, and
 tools/gen_verilog.py deletes the zero initialisers Amaranth gives every
@@ -112,22 +112,25 @@ with tens of GB, on this design), so yosys infers exactly this tiling with
 no initialisation. Explicit DP16KD instances (bram_primitives = True) give
 the same tiling and behaviour. The store is 16384 x 1 blocks (per-bit write
 enables), 5 banks per bit. The per-variable memories wider than one bit are
-built from 2048 x 9 blocks (8 per 9 bits) plus 16384 x 1 ones for the
-remaining bits. Block RAMs: store 90, asg 2, seen 1, lr 28, trail 15,
-heap 13, hpos 14, act 15 = 178 DP16KD (of 183). A Bram behaves exactly like a
+built from 1024 x 18 / 2048 x 9 blocks plus narrower ones for the remaining
+bits. Block RAMs: store 90, asg 2, seen 1, lr 14, trail 8, heap 6, hpos 7,
+act 8 = 136 DP16KD. The template says 183 are free, but the real SoC's
+firmware ROM takes more, and the platform allows about 155 (mrg-sandbox#35);
+that limit is why the variable capacity is 8192, not 16384. A Bram behaves exactly like a
 non-transparent Memory read port (old data on a same-cycle write); see its
 docstring for how. With bram_primitives = False every Bram is a Memory,
 which the Amaranth simulator (tests) can run.
 
 Capacity
 --------
-Declared: 16384 variables, 16384 clauses, 65535 literals. The pool holds
+Declared: 8192 variables, 16384 clauses, 65535 literals. The pool holds
 2*nvars heads + 2*nclauses headers + nlits literals + 1, and the solver needs
 room for learning: at START it sets REJECTED (INFO 0x08) unless at least
 2*nvars + 16 words are left. So each declared limit can be reached on its own,
 but not all three at once; spec 3.9 allows this ("REJECTED after START ...
 because of how the clauses are distributed"), and it is never a wrong answer.
-Every public instance fits; the largest needs 68,632 of the 81,920 words. A
+Of the 70 public instances, all but one (16,278 variables) fit; the largest
+needs 68,632 of the 81,920 words. A
 learned clause takes 4 + (number of lower-level literals) <= 4 + trail size
 words, and analysis starts only when that much room is free.
 
@@ -177,12 +180,12 @@ from amaranth import (Array, Cat, ClockSignal, Const, Elaboratable, Instance, Mo
                       ResetInserter, Signal, signed)
 from amaranth.lib.memory import Memory
 
-VAR_BITS = 14  # variable index width: 16384 variables
-NVAR = 1 << VAR_BITS
+VAR_BITS = 14  # variable index width (encodings and signals)
+NVAR = 1 << 13  # variables: per-variable memory depth and declared max_vars
 CODE_BITS = VAR_BITS + 1  # literal code: [0] negative, [14:1] variable
 SADDR = 17  # clause-store address width
 SDEPTH = 5 * 16384  # clause-store words (5 block RAMs of 16384 x 1 per bit)
-LEV_BITS = VAR_BITS  # stored decision level (levels 0..16383)
+LEV_BITS = VAR_BITS  # stored decision level (0..nvars <= 8192 fits)
 MAX_LEVEL = (1 << LEV_BITS) - 1
 
 # Literal word fields.
@@ -399,7 +402,7 @@ class Solver(Elaboratable):
     # Largest instance this design accepts (see "Capacity" above). Each limit
     # can be reached on its own; an instance whose heads, clauses and learning
     # room do not fit together is REJECTED after START (spec 3.9).
-    max_vars = NVAR  # 16384
+    max_vars = NVAR  # 8192
     max_clauses = 1 << 14  # 16384
     max_lits = (1 << 16) - 1  # 65535
 
