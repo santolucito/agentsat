@@ -22,7 +22,7 @@ Conflict-driven clause learning (CDCL), MiniSat style:
       otherwise, other unassigned -> imply the other watch (reason: clause)
       otherwise                   -> conflict
 * Every assignment records its decision level and its reason (the header
-  address of the implying clause, 0 for decisions and level-0 facts).
+  address of the implying clause + 2, 0 for decisions and level-0 facts).
 * First-UIP conflict analysis: the conflicting clause and then the reasons of
   the marked current-level variables are resolved, walking the trail
   backwards with a per-variable `seen` mark and a counter of unresolved
@@ -93,13 +93,16 @@ Memories (one read and one write port each, block RAM)
                                (0-based), [15] last literal of the clause
                        A learned clause also has a meta word at h-1:
                          [0] glue (LBD <= 2), [1] used since last reduction.
-                       A pointer is [16:0] header address, [17] watch slot.
+                       A pointer to the watch in slot s of clause h is
+                       [16:0] h + s (the address of that watch's own next
+                       pointer, so following a list needs no adder), [17] s.
                        Address 0 is the null pointer (it is a head, never a
                        clause).
     asg_a   8192 x  1  assigned
     asg_v   8192 x  1  value (kept on unassign: saved phase; the model)
     seen    8192 x  1  analysis mark
-    lr      8192 x 31  [13:0] decision level, [30:14] reason
+    lr      8192 x 31  [13:0] decision level, [30:14] reason: h + 2 for
+                       the clause at header h (its first literal), 0 for none
     trail   8192 x 16  [13:0] variable, [14] value, [15] decision
     heap    8192 x 14  decision heap: variable at each position
     hpos    8192 x 15  [13:0] heap position of each variable, [14] in heap
@@ -477,8 +480,55 @@ class Solver(Elaboratable):
         m.d.comb += [aa_r.addr.eq(as_addr), av_r.addr.eq(as_addr)]
         as_data = Cat(av_r.data, aa_r.data)  # [0] value, [1] assigned
 
+        # One-hot copy of the FSM state (Timing). Every transition goes
+        # through goto(), which also sets the next value of fsm_oh, so
+        # fsm_oh[state_index[X]] is 1 exactly while the FSM is in state X.
+        # yosys keeps Amaranth's FSM binary (it cannot extract it), and
+        # decoding its 7 state bits costs two LUT levels before a mux.
+        state_index = {"IDLE": 0}
+        fsm_oh = Signal(128, init=1)
+        oh_next = Signal(128)
+        m.d.comb += oh_next.eq(fsm_oh)
+        m.d.sync += fsm_oh.eq(oh_next)
+        cur_state = [None]
+
+        def sidx(name):
+            if name not in state_index:
+                state_index[name] = len(state_index)
+            assert state_index[name] < len(fsm_oh)
+            return state_index[name]
+
+        def goto(name):
+            m.next = name
+            m.d.comb += oh_next.eq(1 << sidx(name))
+
+        class State:
+            def __init__(self, name):
+                self.name = name
+                self.ctx = m.State(name)
+
+            def __enter__(self):
+                cur_state[0] = self.name
+                sidx(self.name)
+                return self.ctx.__enter__()
+
+            def __exit__(self, *a):
+                cur_state[0] = None
+                return self.ctx.__exit__(*a)
+
+        # The store read address is an AND-OR mux of registers selected by
+        # fsm_oh, built after the FSM from the reads each state issues. A
+        # state's read is issued whether or not the branch that asks for it
+        # is taken (a read has no side effects).
+        st_reads = {}  # repr of the address -> (address, [states])
+
         def st_read(addr):
-            m.d.comb += st_r.addr.eq(addr)
+            assert cur_state[0] is not None
+            key = repr(addr)
+            if key not in st_reads:
+                st_reads[key] = (addr, [])
+            if cur_state[0] not in st_reads[key][1]:
+                st_reads[key][1].append(cur_state[0])
 
         def st_write(addr, data, mask=None):
             m.d.comb += [st_w.addr.eq(addr), st_w.data.eq(data), st_w.en.eq(1)]
@@ -635,13 +685,20 @@ class Solver(Elaboratable):
         inl = Signal()  # scanning the learned area (meta word before h)
         rebuild = Signal()  # rescan after a reduction: skip unit clauses
         sk = Signal(SADDR + 1)  # skip scan address
+        # h + 1 .. h + 4 and sk + 1, kept in registers (Timing: no adder
+        # between a register and the store address).
+        h1 = Signal(SADDR + 1)
+        h2 = Signal(SADDR + 1)
+        h3 = Signal(SADDR + 1)
+        h4 = Signal(SADDR + 1)
+        sk1 = Signal(SADDR + 1)
         lit0w = Signal(16)
         lit1w = Signal(16)
         lret = Signal()  # linking a learned clause (else scanning)
 
         # watch-list walk
         fl = Signal(CODE_BITS)  # the literal that just became false
-        cur = Signal(18)  # current list entry (clause header, watch slot)
+        cur = Signal(18)  # current list entry (pointer: see "Memories")
         nxt = Signal(18)  # the entry after it
         nxt2 = Signal(18)  # and the one after that (speculative)
         prev = Signal(18)  # the kept entry before it ...
@@ -655,18 +712,44 @@ class Solver(Elaboratable):
         cand_addr = Signal(SADDR)
         cand_valid = Signal()
         waddr = Signal(SADDR + 1)
+        waddr1 = Signal(SADDR + 1)  # waddr + 1
         oldhead = Signal(18)
 
-        cur_h, cur_s = cur[:SADDR], cur[SADDR]
-        nxt_h, nxt_s = nxt[:SADDR], nxt[SADDR]
-        prev_h, prev_s = prev[:SADDR], prev[SADDR]
+        # A pointer p is (P = header + slot, slot): P is the address of the
+        # watch's own next pointer. Addresses derived from cur are kept in
+        # registers, computed when cur is set (always from nxt).
+        cur_s = cur[SADDR]
+        nxt_s = nxt[SADDR]
+        cur_oa = Signal(SADDR + 1)  # other watched literal of cur
+        cur_own = Signal(SADDR + 1)  # cur's own watched literal (header + 2 + slot)
+        cur_we = Signal(SADDR + 1)  # WE read: position 1 (slot 1) or 2 (slot 0)
+        cur_h4 = Signal(SADDR + 1)  # header + 4: position 2
+        cur_rsn = Signal(SADDR + 1)  # reason code: header + 2
+        nxt_oa = Signal(SADDR + 1)  # other watched literal of nxt
 
-        def other_addr(hh, ss):
+        def other_addr(p):
             # The other watch: position 1 for slot 0, position 0 for slot 1.
-            return Mux(ss, hh + 2, hh + 3)
+            return Mux(p[SADDR], p[:SADDR] + 1, p[:SADDR] + 3)
+
+        def set_cur(p):
+            pp, ps = p[:SADDR], p[SADDR]
+            m.d.sync += [
+                cur.eq(p),
+                cur_oa.eq(other_addr(p)),
+                cur_own.eq(pp + 2),
+                cur_we.eq(Mux(ps, pp + 2, pp + 4)),
+                cur_h4.eq(Mux(ps, pp + 3, pp + 4)),
+                cur_rsn.eq(Mux(ps, pp + 1, pp + 2)),
+            ]
+
+        def set_h(v):
+            m.d.sync += [h.eq(v), h1.eq(v + 1), h2.eq(v + 2), h3.eq(v + 3), h4.eq(v + 4)]
+
+        def set_sk(v):
+            m.d.sync += [sk.eq(v), sk1.eq(v + 1)]
 
         # conflict analysis
-        ccl = Signal(SADDR)  # clause being resolved
+        ccl = Signal(SADDR)  # clause being resolved: its first literal (header + 2)
         ra = Signal(SADDR + 1)  # its next word to read
         rv = Signal()  # a literal word was read last cycle
         w1 = Signal(16)  # literal word read (stage 2)
@@ -702,7 +785,7 @@ class Solver(Elaboratable):
         mfail = Signal()
         bjl = Signal(VAR_BITS + 1)  # backjump target level
         bjk = Signal()  # 0: backjump after a conflict, 1: restart
-        ureason = Signal(SADDR)  # reason of the asserted UIP literal
+        ureason = Signal(SADDR)  # reason of the asserted UIP literal (header + 2)
 
         # bump
         bv = Signal(VAR_BITS)
@@ -724,6 +807,8 @@ class Solver(Elaboratable):
         rr = Signal(SADDR + 1)  # compaction read pointer
         rw = Signal(SADDR + 1)  # compaction write pointer
         r_rv = Signal()
+        r_dv = Signal()  # r_d holds a word read (registered store data)
+        r_d = Signal(18)
         rpos = Signal(2)  # word position in the clause: 0 meta, 1-2 header, 3 lit
         rkeep = Signal()
         r_wp = Signal()  # a word to write at rw
@@ -742,20 +827,20 @@ class Solver(Elaboratable):
 
         def visit(p):
             """Start on list entry p (a register): read its next pointer."""
-            st_read(p[:SADDR] + p[SADDR])
-            m.d.sync += cur.eq(p)
+            st_read(p[:SADDR])
+            set_cur(p)
             with m.If(p[:SADDR] == 0):
-                m.next = "Q0"  # end of the list
+                goto("Q0")  # end of the list
             with m.Else():
-                m.next = "WB"
+                goto("WB")
 
         def finish(result):
             m.d.sync += res.eq(result)
-            m.next = "DONE"
+            goto("DONE")
 
         def pop_to(level, kind):
             m.d.sync += [bjl.eq(level), bjk.eq(kind)]
-            m.next = "P0"
+            goto("P0")
 
         # Handles for debugging in simulation (no hardware).
         self.dbg = dict(dl=dl, tp=tp, crst=crst, redc=redc, lfree=lfree, qhead=qhead, hn=hn,
@@ -764,7 +849,7 @@ class Solver(Elaboratable):
         with m.FSM(init="IDLE") as fsm:
             self.dbg["fsm"] = fsm
             # ------------------------------------------------------------ load
-            with m.State("IDLE"):
+            with State("IDLE"):
                 m.d.comb += [self.idle.eq(1), self.load_ready.eq(1)]
                 m.d.sync += sz_seen.eq(sz_now)
                 with m.If(sz_now != sz_seen):
@@ -833,20 +918,20 @@ class Solver(Elaboratable):
                     ]
                     with m.If(bad_input):
                         m.d.sync += info.eq(INFO_BAD_LITERAL)
-                        m.next = "REJECT"
+                        goto("REJECT")
                     with m.Elif(empty_clause):
                         m.d.sync += info.eq(INFO_EMPTY_CLAUSE)
                         finish(2)
                     with m.Elif(room0 < need0):
                         m.d.sync += info.eq(INFO_NO_ROOM)
-                        m.next = "REJECT"
+                        goto("REJECT")
                     with m.Else():
-                        m.next = "CLEAR"
+                        goto("CLEAR")
 
             # Clear the watch heads; assign every variable false, clear its
             # seen mark and level/reason. The mark pass then unassigns the
             # variables that occur in some clause.
-            with m.State("CLEAR"):
+            with State("CLEAR"):
                 with m.If(ci < Cat(Const(0, 1), nv)):
                     st_write(ci, 0)
                     with m.If(~ci[0]):
@@ -857,12 +942,12 @@ class Solver(Elaboratable):
                     m.d.sync += ci.eq(ci + 1)
                 with m.Else():
                     m.d.sync += [ma.eq(nv2p1), m_rv.eq(0), m_skip.eq(2), mw_valid.eq(0)]
-                    m.next = "MARK"
+                    goto("MARK")
 
             # Read the original clauses word by word and unassign the variable
             # of every literal word (two header words, then literals up to the
             # one with the last flag). Store data reaches asg only through mw.
-            with m.State("MARK"):
+            with State("MARK"):
                 d = st_r.data
                 st_read(ma)
                 m.d.sync += [ma.eq(ma + 1), m_rv.eq(ma < oend), mw.eq(d), mw_valid.eq(0)]
@@ -877,11 +962,11 @@ class Solver(Elaboratable):
                     as_unassign(mw[1:CODE_BITS])
                 with m.If((ma >= oend) & ~m_rv & ~mw_valid):
                     m.d.sync += [qv.eq(0), q_rv.eq(0), hn.eq(0)]
-                    m.next = "QI"
+                    goto("QI")
 
             # Put the used (unassigned) variables in the decision heap, in
             # index order (all activities are 0, so that is a valid heap).
-            with m.State("QI"):
+            with State("QI"):
                 as_read(qv)
                 m.d.sync += [qv.eq(qv + 1), q_rv.eq(qv < nv), q_var.eq(qv)]
                 with m.If(q_rv & ~aa_r.data):
@@ -889,45 +974,47 @@ class Solver(Elaboratable):
                     ps_write(q_var, hn, 1)
                     m.d.sync += hn.eq(hn + 1)
                 with m.If((qv >= nv) & ~q_rv):
-                    m.d.sync += [h.eq(nv2p1), inl.eq(0), rebuild.eq(0), lret.eq(0)]
-                    m.next = "I0"
+                    set_h(nv2p1)
+                    m.d.sync += [inl.eq(0), rebuild.eq(0), lret.eq(0)]
+                    goto("I0")
 
             # ------------------------------------------ store scan
             # Clause by clause: originals from 2*nv+1 to oend, then learned
             # clauses (a meta word, then the clause) up to lfree.
-            with m.State("I0"):
+            with State("I0"):
                 with m.If(~inl & (h >= oend)):
-                    m.d.sync += [inl.eq(1), h.eq(oend + 1)]
+                    m.d.sync += inl.eq(1)
+                    set_h(oend + 1)
                 with m.Elif(inl & (h > lfree)):
-                    m.next = "Q0"
+                    goto("Q0")
                 with m.Else():
-                    st_read(h + 2)
-                    m.next = "I1"
+                    st_read(h2)
+                    goto("I1")
 
-            with m.State("I1"):
+            with State("I1"):
                 d = st_r.data
                 m.d.sync += lit0w.eq(d)
-                st_read(h + 3)  # unconditional: store data never steers its address
+                st_read(h3)  # unconditional: store data never steers its address
                 with m.If(d[LAST]):
-                    m.next = "IU0"
+                    goto("IU0")
                 with m.Else():
-                    m.next = "I2"
+                    goto("I2")
 
-            with m.State("I2"):
+            with State("I2"):
                 m.d.sync += lit1w.eq(st_r.data)
-                m.next = "LK0"
+                goto("LK0")
 
             # Unit clause: at start-up assign it at level 0; on a rebuild it
             # is assigned already (level-0 assignments are permanent).
-            with m.State("IU0"):
+            with State("IU0"):
                 with m.If(rebuild):
-                    m.d.sync += h.eq(h + 3)
-                    m.next = "I0"
+                    set_h(h3)
+                    goto("I0")
                 with m.Else():
                     as_read(lit0w[1:CODE_BITS])
-                    m.next = "IU1"
+                    goto("IU1")
 
-            with m.State("IU1"):
+            with State("IU1"):
                 a = as_data
                 with m.If(a[1] & (a[0] == lit0w[0])):
                     m.d.sync += info.eq(INFO_UNIT_CONFLICT)
@@ -939,85 +1026,85 @@ class Solver(Elaboratable):
                         tr_write(tp, v, ~lit0w[0], 0)
                         lr_write(v, Const(0, LEV_BITS), Const(0, SADDR))
                         m.d.sync += tp.eq(tp + 1)
-                    m.d.sync += h.eq(h + 3)
-                    m.next = "I0"
+                    set_h(h3)
+                    goto("I0")
 
             # Skip the rest of a clause of three or more literals.
-            with m.State("ISK"):
+            with State("ISK"):
                 d = st_r.data
-                st_read(sk + 1)
+                st_read(sk1)
                 with m.If(d[LAST]):
-                    m.d.sync += h.eq(sk + 1 + inl)
-                    m.next = "I0"
+                    set_h(sk1 + inl)
+                    goto("I0")
                 with m.Else():
-                    m.d.sync += sk.eq(sk + 1)
+                    set_sk(sk1)
 
             # Link clause h on the lists of lit0w (slot 0) and lit1w (slot 1),
             # two different literals. A head lives at the store address equal
             # to its literal code.
-            with m.State("LK0"):
+            with State("LK0"):
                 st_read(lit0w[:CODE_BITS])
-                m.next = "LK1"
+                goto("LK1")
 
-            with m.State("LK1"):
+            with State("LK1"):
                 m.d.sync += oldhead.eq(st_r.data)
-                m.next = "LK2"
+                goto("LK2")
 
-            with m.State("LK2"):
+            with State("LK2"):
                 st_write(h, oldhead)
-                m.next = "LK3"
+                goto("LK3")
 
-            with m.State("LK3"):
+            with State("LK3"):
                 st_write(lit0w[:CODE_BITS], Cat(h[:SADDR], Const(0, 1)))
                 st_read(lit1w[:CODE_BITS])
-                m.next = "LK4"
+                goto("LK4")
 
-            with m.State("LK4"):
+            with State("LK4"):
                 m.d.sync += oldhead.eq(st_r.data)
-                m.next = "LK5"
+                goto("LK5")
 
-            with m.State("LK5"):
-                st_write(h + 1, oldhead)
-                m.next = "LK6"
+            with State("LK5"):
+                st_write(h1, oldhead)
+                goto("LK6")
 
-            with m.State("LK6"):
-                st_write(lit1w[:CODE_BITS], Cat(h[:SADDR], Const(1, 1)))
+            with State("LK6"):
+                st_write(lit1w[:CODE_BITS], Cat(h1[:SADDR], Const(1, 1)))
                 with m.If(lret):
                     m.d.sync += lret.eq(0)
-                    m.next = "P0"
+                    goto("P0")
                 with m.Elif(lit1w[LAST]):
-                    m.d.sync += h.eq(h + 4 + inl)
-                    m.next = "I0"
+                    set_h(h4 + inl)
+                    goto("I0")
                 with m.Else():
-                    st_read(h + 4)
-                    m.d.sync += sk.eq(h + 4)
-                    m.next = "ISK"
+                    st_read(h4)
+                    set_sk(h4)
+                    goto("ISK")
 
             # ---------------------------------------------------- propagate
-            with m.State("Q0"):
+            with State("Q0"):
                 tr_read(qhead)
                 with m.If(qhead == tp):
-                    m.next = "DEC"
+                    goto("DEC")
                 with m.Else():
-                    m.next = "Q1"
+                    goto("Q1")
 
-            with m.State("Q1"):
+            with State("Q1"):
                 m.d.sync += [
                     fl.eq(Cat(tr_val, tr_var)),  # the literal made false
                     qhead.eq(qhead + 1),
                     prev_head.eq(1),
                 ]
-                m.next = "Q2"
+                goto("Q2")
 
-            with m.State("Q2"):
+            with State("Q2"):
                 st_read(fl)  # its watch-list head
-                m.next = "Q3"
+                goto("Q3")
 
-            with m.State("Q3"):
+            with State("Q3"):
                 m.d.sync += nxt.eq(st_r.data)
-                m.next = "Q4"
+                goto("Q4")
 
-            with m.State("Q4"):
+            with State("Q4"):
                 visit(nxt)
 
             # The walk. Visits overlap so that a kept watch costs two cycles
@@ -1025,76 +1112,79 @@ class Solver(Elaboratable):
             # store reads for the next two entries are already issued. These
             # reads are speculative and harmless: nothing is written in
             # WB..WY, and their data is dropped if cur's watch has to move.
-            with m.State("WB"):
+            with State("WB"):
                 m.d.sync += nxt.eq(st_r.data)
-                st_read(other_addr(cur_h, cur_s))
-                m.next = "WC"
+                st_read(cur_oa)
+                goto("WC")
 
-            with m.State("WC"):
+            with State("WC"):
                 m.d.sync += other.eq(st_r.data)
-                st_read(nxt_h + nxt_s)
-                m.next = "WX"
+                st_read(nxt[:SADDR])
+                m.d.sync += nxt_oa.eq(other_addr(nxt))
+                goto("WX")
 
-            with m.State("WX"):
+            with State("WX"):
                 m.d.sync += nxt2.eq(st_r.data)
                 as_read(other[1:CODE_BITS])
-                st_read(other_addr(nxt_h, nxt_s))
-                m.next = "WY"
+                st_read(nxt_oa)
+                goto("WY")
 
-            with m.State("WY"):
+            with State("WY"):
                 a = as_data
-                st_read(nxt2[:SADDR] + nxt2[SADDR])
+                st_read(nxt2[:SADDR])
                 m.d.sync += oth_asg.eq(a)
                 with m.If(a[1] & (a[0] != other[0])):
                     # Other watch is true: keep this watch, go on to nxt.
                     m.d.sync += [
                         prev.eq(cur),
                         prev_head.eq(0),
-                        cur.eq(nxt),
                         nxt.eq(nxt2),
+                        nxt_oa.eq(other_addr(nxt2)),
                         other.eq(st_r.data),
                     ]
-                    with m.If(nxt_h == 0):
-                        m.next = "Q0"
+                    set_cur(nxt)
+                    with m.If(nxt[:SADDR] == 0):
+                        goto("Q0")
                     with m.Else():
-                        m.next = "WX"
+                        goto("WX")
                 with m.Else():
-                    m.next = "WE"
+                    goto("WE")
 
             # Look for a replacement watch. For slot 0 the other watch is
             # position 1, so its last flag says whether the clause is binary;
             # for slot 1, read position 1 to find out.
-            with m.State("WE"):
-                st_read(Mux(cur_s, cur_h + 3, cur_h + 4))
-                m.d.sync += [waddr.eq(cur_h + 4), c1_valid.eq(0), cand_valid.eq(0)]
+            with State("WE"):
+                st_read(cur_we)
+                m.d.sync += [waddr.eq(cur_h4), waddr1.eq(cur_h4 + 1), c1_valid.eq(0),
+                             cand_valid.eq(0)]
                 with m.If(cur_s):
-                    m.next = "WP1"
+                    goto("WP1")
                 with m.Elif(other[LAST]):
-                    m.next = "NOREP"
+                    goto("NOREP")
                 with m.Else():
-                    m.next = "SRCH"
+                    goto("SRCH")
 
-            with m.State("WP1"):
-                st_read(cur_h + 4)
+            with State("WP1"):
+                st_read(cur_h4)
                 with m.If(st_r.data[LAST]):
-                    m.next = "NOREP"
+                    goto("NOREP")
                 with m.Else():
-                    m.next = "SRCH"
+                    goto("SRCH")
 
             # Scan positions 2.. for a literal that is not false, one per
             # cycle, in a three-stage pipeline (store word -> asg lookup ->
             # verdict). Nothing is written.
-            with m.State("SRCH"):
+            with State("SRCH"):
                 a = as_data
                 cand_false = a[1] & (a[0] == cand[0])
                 shift = Signal()
                 as_read(c1[1:CODE_BITS])
-                st_read(waddr + 1)
+                st_read(waddr1)
                 with m.If(cand_valid):
                     with m.If(~cand_false & (cand[:CODE_BITS] != other[:CODE_BITS])):
-                        m.next = "F1"
+                        goto("F1")
                     with m.Elif(cand[LAST]):
-                        m.next = "NOREP"
+                        goto("NOREP")
                     with m.Else():
                         m.d.comb += shift.eq(1)
                 with m.Else():
@@ -1107,67 +1197,68 @@ class Solver(Elaboratable):
                         c1.eq(st_r.data),
                         c1_addr.eq(waddr),
                         c1_valid.eq(1),
-                        waddr.eq(waddr + 1),
+                        waddr.eq(waddr1),
+                        waddr1.eq(waddr1 + 1),
                     ]
 
             # No replacement: imply the other watch, or conflict.
-            with m.State("NOREP"):
+            with State("NOREP"):
                 with m.If(oth_asg[1]):
-                    m.next = "CONFL"  # other watch false: every literal is false
+                    goto("CONFL")  # other watch false: every literal is false
                 with m.Else():
                     v = other[1:CODE_BITS]
                     as_assign(v, ~other[0])
                     tr_write(tp, v, ~other[0], 0)
-                    lr_write(v, dl, cur_h)
+                    lr_write(v, dl, cur_rsn)
                     m.d.sync += [tp.eq(tp + 1), prev.eq(cur), prev_head.eq(0)]
                     visit(nxt)
 
             # Replacement found at cand_addr: move the watch there. Five
             # store writes, one per cycle; the last overlaps the next visit.
-            with m.State("F1"):
+            with State("F1"):
                 # The false literal goes where the candidate was, keeping that
                 # position's flags.
                 st_write(cand_addr, Cat(fl, cand[LAST:]))
                 st_read(cand[:CODE_BITS])  # head of cand (!= fl: cand is not false)
-                m.next = "F2"
+                goto("F2")
 
-            with m.State("F2"):
+            with State("F2"):
                 # The watch position gets the candidate (positions 0 and 1 are
                 # never last here: the clause has at least 3 literals).
-                st_write(other_addr(cur_h, ~cur_s), Cat(cand[:CODE_BITS], Const(0, 3)))
+                st_write(cur_own, Cat(cand[:CODE_BITS], Const(0, 3)))
                 m.d.sync += oldhead.eq(st_r.data)
-                m.next = "F3"
+                goto("F3")
 
-            with m.State("F3"):
-                st_write(cur_h + cur_s, oldhead)
-                m.next = "F4"
+            with State("F3"):
+                st_write(cur[:SADDR], oldhead)
+                goto("F4")
 
-            with m.State("F4"):
+            with State("F4"):
                 st_write(cand[:CODE_BITS], cur)  # push cur on cand's list
-                m.next = "F5"
+                goto("F5")
 
-            with m.State("F5"):
+            with State("F5"):
                 # Unlink cur from fl's list. The visit reads nxt's header in
                 # this cycle: nxt is neither cur nor prev and not a head.
                 with m.If(prev_head):
                     st_write(fl, nxt)
                 with m.Else():
-                    st_write(prev_h + prev_s, nxt)
+                    st_write(prev[:SADDR], nxt)
                 visit(nxt)
 
             # ------------------------------------------------------- decide
-            with m.State("DEC"):
+            with State("DEC"):
                 with m.If((crst >= rlimit) | (redc >= rlim)):
                     pop_to(0, 1)  # restart (and maybe reduce)
                 with m.Elif(inc_e >= RESCALE_AT):
                     m.d.sync += [sc.eq(0), sc_rv.eq(0)]
-                    m.next = "SC"
+                    goto("SC")
                 with m.Else():
-                    m.next = "D0"
+                    goto("D0")
 
             # Rescale every activity (and the increment) down by 2^32; small
             # ones become 0. Monotone, so the heap order stays valid.
-            with m.State("SC"):
+            with State("SC"):
                 ac_read(sc)
                 m.d.sync += [sc.eq(sc + 1), sc_rv.eq(sc < nv), sc_var.eq(sc)]
                 with m.If(sc_rv):
@@ -1176,42 +1267,42 @@ class Solver(Elaboratable):
                                          Cat(ac_r.data[:ACT_MANT], e - RESCALE_BY), 0))
                 with m.If((sc >= nv) & ~sc_rv):
                     m.d.sync += inc_e.eq(inc_e - RESCALE_BY)
-                    m.next = "D0"
+                    goto("D0")
 
             # VSIDS: remove the heap top until it is unassigned; decide it.
-            with m.State("D0"):
+            with State("D0"):
                 hp_read(0)
                 with m.If(hn == 0):
                     finish(1)  # every used variable assigned, no conflict: SAT
                 with m.Else():
-                    m.next = "D1"
+                    goto("D1")
 
-            with m.State("D1"):
+            with State("D1"):
                 m.d.sync += dv.eq(hp_r.data)
                 hp_read(hn - 1)
-                m.next = "D2"
+                goto("D2")
 
-            with m.State("D2"):
+            with State("D2"):
                 m.d.sync += [dx.eq(hp_r.data), hn.eq(hn - 1)]
                 ps_write(dv, Const(0, VAR_BITS), 0)
                 as_read(dv)
-                m.next = "D3"
+                goto("D3")
 
-            with m.State("D3"):
+            with State("D3"):
                 m.d.sync += dasg.eq(as_data)
                 ac_read(dx)
-                m.next = "D3B"
+                goto("D3B")
 
-            with m.State("D3B"):
+            with State("D3B"):
                 m.d.sync += [hx.eq(dx), hax.eq(ac_r.data), hi.eq(0)]
                 with m.If(hn == 0):
-                    m.next = "D4"
+                    goto("D4")
                 with m.Else():
-                    m.next = "SD0"
+                    goto("SD0")
 
-            with m.State("D4"):
+            with State("D4"):
                 with m.If(dasg[1]):
-                    m.next = "D0"
+                    goto("D0")
                 with m.Elif(dl == MAX_LEVEL):
                     m.d.sync += info.eq(INFO_LEVEL_LIMIT)
                     finish(0)
@@ -1221,38 +1312,38 @@ class Solver(Elaboratable):
                     tr_write(tp, dv, dasg[0], 1)
                     lr_write(dv, dl + 1, Const(0, SADDR))
                     m.d.sync += [tp.eq(tp + 1), dl.eq(dl + 1)]
-                    m.next = "Q0"
+                    goto("Q0")
 
             # Sift hx (activity hax) down from position hi.
-            with m.State("SD0"):
+            with State("SD0"):
                 c = Signal(VAR_BITS + 2)
                 m.d.comb += c.eq(Cat(Const(1, 1), hi))  # 2 * hi + 1
                 hp_read(c)
                 with m.If(c >= hn):
-                    m.next = "SDW"
+                    goto("SDW")
                 with m.Else():
-                    m.next = "SD1"
+                    goto("SD1")
 
-            with m.State("SD1"):
+            with State("SD1"):
                 m.d.sync += hu.eq(hp_r.data)
                 hp_read(Cat(Const(0, 1), hi) + 2)
-                m.next = "SD2"
+                goto("SD2")
 
-            with m.State("SD2"):
+            with State("SD2"):
                 m.d.sync += hu2.eq(hp_r.data)
                 ac_read(hu)
-                m.next = "SD3"
+                goto("SD3")
 
-            with m.State("SD3"):
+            with State("SD3"):
                 m.d.sync += ha1.eq(ac_r.data)
                 ac_read(hu2)
-                m.next = "SD4"
+                goto("SD4")
 
-            with m.State("SD4"):
+            with State("SD4"):
                 m.d.sync += ha2.eq(ac_r.data)
-                m.next = "SD5"
+                goto("SD5")
 
-            with m.State("SD5"):
+            with State("SD5"):
                 c1 = Cat(Const(1, 1), hi)
                 two = (c1 + 1 < hn) & (ha2 > ha1)
                 ch = Mux(two, hu2, hu)
@@ -1262,17 +1353,17 @@ class Solver(Elaboratable):
                     hp_write(hi, ch)
                     ps_write(ch, hi, 1)
                     m.d.sync += hi.eq(ci2)
-                    m.next = "SD0"
+                    goto("SD0")
                 with m.Else():
-                    m.next = "SDW"
+                    goto("SDW")
 
-            with m.State("SDW"):
+            with State("SDW"):
                 hp_write(hi, hx)
                 ps_write(hx, hi, 1)
-                m.next = "D4"
+                goto("D4")
 
             # ----------------------------------------------------- conflict
-            with m.State("CONFL"):
+            with State("CONFL"):
                 with m.If(dl == 0):
                     finish(2)
                 with m.Elif(room < tp + 8):
@@ -1291,19 +1382,19 @@ class Solver(Elaboratable):
                         lw.eq(lfree + 4),
                         path_c.eq(0),
                         tidx.eq(tp - 1),
-                        ccl.eq(cur_h),
+                        ccl.eq(cur_rsn),
                     ]
-                    m.next = "AC0"
+                    goto("AC0")
 
             # Resolve clause ccl: mark it used (learned clauses) and read its
             # literals.
-            with m.State("AC0"):
-                with m.If(ccl > oend):
-                    st_write(ccl - 1, 1 << M_USED, mask=1 << M_USED)
-                st_read(ccl + 2)
-                m.d.sync += [ra.eq(ccl + 3), rv.eq(1), v1.eq(0), v2.eq(0), v3.eq(0), mA.eq(0),
+            with State("AC0"):
+                with m.If(ccl > oend + 2):  # header > oend: a learned clause
+                    st_write(ccl - 3, 1 << M_USED, mask=1 << M_USED)
+                st_read(ccl)
+                m.d.sync += [ra.eq(ccl + 1), rv.eq(1), v1.eq(0), v2.eq(0), v3.eq(0), mA.eq(0),
                              mB.eq(0)]
-                m.next = "AC"
+                goto("AC")
 
             # Three-stage pipeline, one literal per cycle:
             #   1. the literal word arrives from the store (next word read
@@ -1315,7 +1406,7 @@ class Solver(Elaboratable):
             # (Stage 3 only registers the read data, for timing; the verdict
             # is in stage 4, with a bypass for the marks of the two previous
             # verdicts.)
-            with m.State("AC"):
+            with State("AC"):
                 st_read(ra)  # speculative past the last literal: harmless
                 # Stage 1: the literal word arrives.
                 with m.If(rv):
@@ -1351,74 +1442,74 @@ class Solver(Elaboratable):
                 m.d.sync += [vA.eq(w3v), mA.eq(mark), vB.eq(vA), mB.eq(mA)]
 
                 with m.If(~rv & ~v1 & ~v2 & ~v3):
-                    m.next = "AT0"
+                    goto("AT0")
 
             # Walk the trail backwards to the next marked variable.
-            with m.State("AT0"):
+            with State("AT0"):
                 tr_read(tidx)
-                m.next = "AT1"
+                goto("AT1")
 
-            with m.State("AT1"):
+            with State("AT1"):
                 m.d.sync += te.eq(tr_r.data)
-                m.next = "AT2"
+                goto("AT2")
 
-            with m.State("AT2"):
+            with State("AT2"):
                 sn_read(te[:VAR_BITS])
                 lr_read(te[:VAR_BITS])
-                m.next = "AT3"
+                goto("AT3")
 
-            with m.State("AT3"):
+            with State("AT3"):
                 m.d.sync += tidx.eq(tidx - 1)
                 with m.If(sn_r.data):
                     with m.If(path_c == 1):
                         m.d.sync += mna.eq(lh + 3)
-                        m.next = "MN0"  # te is the first UIP
+                        goto("MN0")  # te is the first UIP
                     with m.Else():
                         m.d.sync += [path_c.eq(path_c - 1), ccl.eq(lr_reason)]
-                        m.next = "AC0"
+                        goto("AC0")
                 with m.Else():
-                    m.next = "AT0"
+                    goto("AT0")
 
             # Minimization (MiniSat's basic mode): a lower-level literal whose
             # reason has only marked literals (or level-0 ones) is implied by
             # the rest of the clause; flag it (bit 16) for removal. Marks are
             # not changed here, so flagged literals still count as marked.
-            with m.State("MN0"):
+            with State("MN0"):
                 with m.If(mna == lw):
                     m.d.sync += [la.eq(lh + 3), wp.eq(lh + 3), maxlev.eq(0),
                                  minlev.eq(MAX_LEVEL)]
-                    m.next = "LB0"
+                    goto("LB0")
                 with m.Else():
                     st_read(mna)
-                    m.next = "MN1"
+                    goto("MN1")
 
-            with m.State("MN1"):
+            with State("MN1"):
                 m.d.sync += mnw.eq(st_r.data)
-                m.next = "MN2"
+                goto("MN2")
 
-            with m.State("MN2"):
+            with State("MN2"):
                 lr_read(mnw[1:CODE_BITS])
-                m.next = "MN3"
+                goto("MN3")
 
-            with m.State("MN3"):
+            with State("MN3"):
                 m.d.sync += ccl.eq(lr_reason)
-                m.next = "MN3B"
+                goto("MN3B")
 
-            with m.State("MN3B"):
+            with State("MN3B"):
                 with m.If(ccl == 0):
                     m.d.sync += mna.eq(mna + 1)  # a decision: keep
-                    m.next = "MN0"
+                    goto("MN0")
                 with m.Else():
-                    m.next = "MN4"
+                    goto("MN4")
 
-            with m.State("MN4"):
-                st_read(ccl + 2)
-                m.d.sync += [ra.eq(ccl + 3), rv.eq(1), v1.eq(0), v2.eq(0), v3.eq(0), mfail.eq(0)]
-                m.next = "MN5"
+            with State("MN4"):
+                st_read(ccl)
+                m.d.sync += [ra.eq(ccl + 1), rv.eq(1), v1.eq(0), v2.eq(0), v3.eq(0), mfail.eq(0)]
+                goto("MN5")
 
             # Same pipeline as AC, without writes; stops at the first literal
             # that is neither marked nor at level 0.
-            with m.State("MN5"):
+            with State("MN5"):
                 st_read(ra)
                 with m.If(rv):
                     d = st_r.data
@@ -1436,39 +1527,39 @@ class Solver(Elaboratable):
                 with m.If(v3):
                     m.d.sync += mfail.eq(1)
                 with m.If(mfail | (~rv & ~v1 & ~v2 & ~v3)):
-                    m.next = "MN6"
+                    goto("MN6")
 
-            with m.State("MN6"):
+            with State("MN6"):
                 with m.If(~mfail):
                     st_write(mna, mnw | (1 << RMV))
                 m.d.sync += mna.eq(mna + 1)
-                m.next = "MN0"
+                goto("MN0")
 
             # Pass over the lower-level literals: clear every mark and bump
             # every variable (removed literals too), compact the kept
             # literals to lh+3 .. wp-1, and find the highest and lowest
             # levels among them.
-            with m.State("LB0"):
+            with State("LB0"):
                 with m.If(la == lw):
                     m.d.sync += lw.eq(wp)
-                    m.next = "AU0"
+                    goto("AU0")
                 with m.Else():
                     st_read(la)
-                    m.next = "LB1"
+                    goto("LB1")
 
-            with m.State("LB1"):
+            with State("LB1"):
                 m.d.sync += [lbw.eq(st_r.data), la.eq(la + 1)]
-                m.next = "LB2"
+                goto("LB2")
 
-            with m.State("LB2"):
+            with State("LB2"):
                 lr_read(lbw[1:CODE_BITS])
-                m.next = "LB3"
+                goto("LB3")
 
-            with m.State("LB3"):
+            with State("LB3"):
                 m.d.sync += lblev.eq(lr_level)
-                m.next = "LB4"
+                goto("LB4")
 
-            with m.State("LB4"):
+            with State("LB4"):
                 code = lbw[:CODE_BITS]
                 with m.If(~lbw[RMV]):
                     st_write(wp, code)
@@ -1480,170 +1571,170 @@ class Solver(Elaboratable):
                     with m.If(lblev < minlev):
                         m.d.sync += minlev.eq(lblev)
                 m.d.sync += [bv.eq(lbw[1:CODE_BITS]), bret.eq(0)]
-                m.next = "BM0"
+                goto("BM0")
 
             # The learned clause: UIP at position 0 (as the false literal),
             # the lower-level literals at lh+3 .. lw-1. Swap the literal of
             # the highest level into position 1 and flag the last word.
-            with m.State("AU0"):
+            with State("AU0"):
                 st_write(lh + 2, Cat(te[VAR_BITS], te[:VAR_BITS]))
                 with m.If(lw == lh + 3):
                     # Unit clause: assert at level 0, not stored.
                     m.d.sync += [bjl.eq(0), ureason.eq(0), bjk.eq(0)]
-                    m.next = "P0"
+                    goto("P0")
                 with m.Else():
-                    m.next = "AU1"
+                    goto("AU1")
 
-            with m.State("AU1"):
+            with State("AU1"):
                 st_write(lh + 3, Cat(maxlit, lw - 1 == lh + 3))
-                m.next = "AU2"
+                goto("AU2")
 
-            with m.State("AU2"):
+            with State("AU2"):
                 with m.If(maxaddr != lh + 3):
                     st_write(maxaddr, Cat(firstlit, maxaddr == lw - 1))
-                m.next = "AU3"
+                goto("AU3")
 
-            with m.State("AU3"):
+            with State("AU3"):
                 with m.If((lw - 1 != lh + 3) & (lw - 1 != maxaddr)):
                     st_write(lw - 1, Cat(lastlit, Const(1, 1)))
-                m.next = "AU4"
+                goto("AU4")
 
-            with m.State("AU4"):
+            with State("AU4"):
+                set_h(lh)
                 # Meta word: glue if every lower-level literal has one level.
                 st_write(lh - 1, Cat(minlev == maxlev, Const(1, 1)))
                 m.d.sync += [
-                    h.eq(lh),
                     lit0w.eq(Cat(te[VAR_BITS], te[:VAR_BITS])),
                     lit1w.eq(maxlit),
                     lret.eq(1),
                     lfree.eq(lw),
                     bjl.eq(maxlev),
-                    ureason.eq(lh),
+                    ureason.eq(lh + 2),
                     bjk.eq(0),
                 ]
-                m.next = "LK0"
+                goto("LK0")
 
             # Bump bv: clear its seen mark and add the increment to its
             # activity. In the heap: sift it up. Not in the heap and being
             # unassigned (pop loop): insert it.
-            with m.State("BM0"):
+            with State("BM0"):
                 sn_write(bv, 0)
                 ac_read(bv)
                 ps_read(bv)
-                m.next = "BM1"
+                goto("BM1")
 
-            with m.State("BM1"):
+            with State("BM1"):
                 m.d.sync += [hax.eq(ac_r.data), hi.eq(ps_idx), hp.eq(ps_in)]
-                m.next = "BM2"
+                goto("BM2")
 
-            with m.State("BM2"):
+            with State("BM2"):
                 na = Signal(ACT_BITS)
                 m.d.comb += na.eq(fadd(hax, inc))
                 ac_write(bv, na)
                 m.d.sync += [hax.eq(na), hx.eq(bv), hret.eq(bret)]
                 with m.If(hp[0]):  # in the heap
-                    m.next = "UP0"
+                    goto("UP0")
                 with m.Elif(bret):  # unassigned now: insert at the end
                     m.d.sync += [hi.eq(hn), hn.eq(hn + 1)]
-                    m.next = "UP0"
+                    goto("UP0")
                 with m.Else():
-                    m.next = "LB0"
+                    goto("LB0")
 
             # Sift hx (activity hax) up from position hi.
-            with m.State("UP0"):
+            with State("UP0"):
                 pp = Signal(VAR_BITS + 1)
                 m.d.comb += pp.eq((hi - 1) >> 1)
                 hp_read(pp)
                 m.d.sync += hp.eq(pp)
                 with m.If(hi == 0):
-                    m.next = "UPW"
+                    goto("UPW")
                 with m.Else():
-                    m.next = "UP1"
+                    goto("UP1")
 
-            with m.State("UP1"):
+            with State("UP1"):
                 m.d.sync += hu.eq(hp_r.data)
-                m.next = "UP2"
+                goto("UP2")
 
-            with m.State("UP2"):
+            with State("UP2"):
                 ac_read(hu)
-                m.next = "UP3"
+                goto("UP3")
 
-            with m.State("UP3"):
+            with State("UP3"):
                 m.d.sync += ha1.eq(ac_r.data)
-                m.next = "UP4"
+                goto("UP4")
 
-            with m.State("UP4"):
+            with State("UP4"):
                 with m.If(ha1 < hax):
                     hp_write(hi, hu)
                     ps_write(hu, hi, 1)
                     m.d.sync += hi.eq(hp)
-                    m.next = "UP0"
+                    goto("UP0")
                 with m.Else():
-                    m.next = "UPW"
+                    goto("UPW")
 
-            with m.State("UPW"):
+            with State("UPW"):
                 hp_write(hi, hx)
                 ps_write(hx, hi, 1)
                 with m.If(hret):
-                    m.next = "P0"
+                    goto("P0")
                 with m.Else():
-                    m.next = "LB0"
+                    goto("LB0")
 
             # ------------------------------------------- backjump / restart
             # Pop the trail down to level bjl, unassigning (the value stays as
             # the saved phase); marked variables are bumped and unmarked.
-            with m.State("P0"):
+            with State("P0"):
                 with m.If(dl == bjl):
                     with m.If(bjk):
-                        m.next = "RS1"
+                        goto("RS1")
                     with m.Else():
-                        m.next = "ASSERT"
+                        goto("ASSERT")
                 with m.Else():
                     tr_read(tp - 1)
-                    m.next = "P1"
+                    goto("P1")
 
-            with m.State("P1"):
+            with State("P1"):
                 as_unassign(tr_var)
                 m.d.sync += [pe.eq(tr_r.data), tp.eq(tp - 1)]
                 with m.If(tr_dec):
                     m.d.sync += dl.eq(dl - 1)
-                m.next = "P2"
+                goto("P2")
 
-            with m.State("P2"):
+            with State("P2"):
                 sn_read(pe[:VAR_BITS])
                 ps_read(pe[:VAR_BITS])
                 ac_read(pe[:VAR_BITS])
-                m.next = "P3"
+                goto("P3")
 
             # A marked variable is bumped (and inserted if needed); an
             # unmarked one is inserted if it is not in the heap.
-            with m.State("P3"):
+            with State("P3"):
                 m.d.sync += [hx.eq(pe[:VAR_BITS]), hax.eq(ac_r.data), hret.eq(1),
                              p_sn.eq(sn_r.data), p_in.eq(ps_in)]
-                m.next = "P4"
+                goto("P4")
 
-            with m.State("P4"):
+            with State("P4"):
                 with m.If(p_sn):
                     m.d.sync += [bv.eq(pe[:VAR_BITS]), bret.eq(1)]
-                    m.next = "BM0"
+                    goto("BM0")
                 with m.Elif(~p_in):
                     m.d.sync += [hi.eq(hn), hn.eq(hn + 1)]
-                    m.next = "UP0"
+                    goto("UP0")
                 with m.Else():
-                    m.next = "P0"
+                    goto("P0")
 
             # Assert the UIP literal (the negation of its old value).
-            with m.State("ASSERT"):
+            with State("ASSERT"):
                 v = te[:VAR_BITS]
                 val = ~te[VAR_BITS]
                 as_assign(v, val)
                 tr_write(tp, v, val, 0)
                 lr_write(v, bjl, ureason)
                 m.d.sync += [qhead.eq(tp), tp.eq(tp + 1)]
-                m.next = "Q0"
+                goto("Q0")
 
             # After a restart: next Luby limit; reduce if due.
-            with m.State("RS1"):
+            with State("RS1"):
                 lowbit = Signal(24)
                 m.d.comb += lowbit.eq(lu & (~lu + 1))
                 with m.If(lowbit == lv):
@@ -1658,28 +1749,31 @@ class Solver(Elaboratable):
                         rlim.eq(rlim + self.reduce_inc),
                         rmode.eq(0),
                     ]
-                    m.next = "RD0"
+                    goto("RD0")
                 with m.Else():
-                    m.next = "Q0"
+                    goto("Q0")
 
             # ------------------------------------------------------ reduce
             # Compact the learned area in place, one word per cycle: read at
             # rr, write the kept words at rw <= rr - 1.
-            with m.State("RD0"):
-                m.d.sync += [rr.eq(oend), rw.eq(oend), rpos.eq(0), r_rv.eq(0), r_wp.eq(0)]
-                m.next = "RD1"
+            with State("RD0"):
+                m.d.sync += [rr.eq(oend), rw.eq(oend), rpos.eq(0), r_rv.eq(0), r_dv.eq(0),
+                             r_wp.eq(0)]
+                goto("RD1")
 
-            with m.State("RD1"):
+            with State("RD1"):
                 st_read(rr)
                 with m.If(rr < lfree):
                     m.d.sync += [rr.eq(rr + 1), r_rv.eq(1)]
                 with m.Else():
                     m.d.sync += r_rv.eq(0)
-                # Stage 2: the word read last cycle arrives; decide whether
-                # the clause is kept (at its meta word) and register the copy.
-                d = st_r.data
+                # Stage 2: the word read last cycle arrives; register it.
+                m.d.sync += [r_d.eq(st_r.data), r_dv.eq(r_rv)]
+                # Stage 3: decide whether the clause is kept (at its meta
+                # word) and register the copy.
+                d = r_d
                 m.d.sync += [r_wp.eq(0), r_wd.eq(d)]
-                with m.If(r_rv):
+                with m.If(r_dv):
                     with m.If(rpos == 0):
                         keep = Signal()
                         m.d.comb += keep.eq(
@@ -1693,38 +1787,54 @@ class Solver(Elaboratable):
                             m.d.sync += rpos.eq(rpos + 1)
                         with m.Elif(d[LAST]):
                             m.d.sync += rpos.eq(0)
-                # Stage 3: write the kept word (rw <= rr - 2: never a word
+                # Stage 4: write the kept word (rw <= rr - 3: never a word
                 # still to be read).
                 with m.If(r_wp):
                     st_write(rw, r_wd)
                     m.d.sync += rw.eq(rw + 1)
-                with m.If(~r_rv & ~r_wp & (rr >= lfree)):
-                    m.next = "RD2"
+                with m.If(~r_rv & ~r_dv & ~r_wp & (rr >= lfree)):
+                    goto("RD2")
 
-            with m.State("RD2"):
+            with State("RD2"):
                 m.d.sync += lfree.eq(rw)
                 with m.If((self.sdepth - rw < rt) & (rmode != 2)):
                     m.d.sync += rmode.eq(rmode + 1)
-                    m.next = "RD0"
+                    goto("RD0")
                 with m.Else():
                     m.d.sync += ci.eq(0)
-                    m.next = "RCLR"
+                    goto("RCLR")
 
             # Rebuild every watch list from scratch.
-            with m.State("RCLR"):
+            with State("RCLR"):
                 with m.If(ci < Cat(Const(0, 1), nv)):
                     st_write(ci, 0)
                     m.d.sync += ci.eq(ci + 1)
                 with m.Else():
-                    m.d.sync += [h.eq(nv2p1), inl.eq(0), rebuild.eq(1), lret.eq(0)]
-                    m.next = "I0"
+                    set_h(nv2p1)
+                    m.d.sync += [inl.eq(0), rebuild.eq(1), lret.eq(0)]
+                    goto("I0")
 
-            with m.State("DONE"):
+            with State("DONE"):
                 m.d.comb += [self.done.eq(1), self.model_val.eq(av_r.data)]
                 as_read(self.model_addr[:VAR_BITS])
 
-            with m.State("REJECT"):
+            with State("REJECT"):
                 m.d.comb += self.rejected.eq(1)
+
+        terms = []
+        seen_states = [n for _, states in st_reads.values() for n in states]
+        assert len(seen_states) == len(set(seen_states)), "two store reads in one state"
+        for addr, states in st_reads.values():
+            sel = 0
+            for name in states:
+                sel = sel | fsm_oh[state_index[name]]
+            terms.append(Mux(sel, addr, 0))
+        acc = terms[0]
+        for t in terms[1:]:
+            acc = acc | t
+        m.d.comb += st_r.addr.eq(acc)
+        self.dbg["fsm_oh"] = fsm_oh
+        self.dbg["state_index"] = state_index
 
         # ABORT resets every register of the solver (the FSM returns to IDLE,
         # the load pointer to 1) in the cycle after it rises. Memory contents
