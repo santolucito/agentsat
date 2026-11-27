@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from amaranth.back import rtlil  # noqa: E402
 
-from solver import Solver, parallel_switches  # noqa: E402
+from solver import Bram, Solver, parallel_switches  # noqa: E402
 
 
 def main():
@@ -31,6 +31,10 @@ def main():
     out = [a for a in args if a != "--memory"][0]
     os.makedirs(out, exist_ok=True)
     Solver.bram_primitives = not memory
+    # The competition build leaves the read data of a same-word read/write
+    # collision undefined (no_rw_check, see tools/gen_verilog.py): simulate
+    # it corrupted (inverted), so a solver that used it would go wrong.
+    Bram.poison_collisions = memory
     s = Solver()
     ports = [
         s.start, s.abort, s.nvars, s.nclauses, s.nlits, s.load_valid, s.load_data,

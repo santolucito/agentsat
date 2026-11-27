@@ -288,6 +288,14 @@ class Bram(Elaboratable):
     Without `primitives` it is one Memory, which the Amaranth simulator can
     run; both behave identically, cycle for cycle."""
 
+    # Simulation only (never in the synthesized design): in the Memory
+    # build, invert the read data of a physical same-word read/write
+    # collision, which the competition build declares undefined
+    # (`no_rw_check`, see tools/gen_verilog.py) and the forwarding replaces.
+    # The tests and sim/export_verilog.py --memory set it, so the forwarding
+    # is checked.
+    poison_collisions = False
+
     def __init__(self, width, depth, bit_mask=False, primitives=True):
         self.width, self.depth = width, depth
         self.bit_mask, self.primitives = bit_mask, primitives
@@ -308,20 +316,50 @@ class Bram(Elaboratable):
             # One Memory per column group of the block plan (bits lo..lo+used)
             # and per bank (block depth), so yosys tiles each into exactly
             # one DP16KD of the shape the primitive build uses (for example
-            # 2048x9 for a 9-bit group). The banks' read data is combined
-            # here with a one-hot bank select registered from the read
-            # address (an AND-OR, two LUT levels for five banks; yosys'
-            # own bank mux decodes a binary select first). Splitting by
-            # columns and banks does not change behaviour.
+            # 2048x9 for a 9-bit group). Splitting by columns and banks does
+            # not change behaviour. As in the primitive build below:
+            #   * the write is registered and lands one cycle late, and a
+            #     read of the word being written physically (the cycle after
+            #     the logical write) takes the registered write data instead
+            #     (one comparator per Bram, registered). So the read data of
+            #     a physical collision is never used, and tools/gen_verilog.py
+            #     marks every memory no_rw_check (otherwise yosys adds its
+            #     own delayed write, comparator and bypass to every bank);
+            #   * the banks' read data is combined with a one-hot bank select
+            #     registered from the read address (an AND-OR: two LUT levels
+            #     for five banks).
+            width, abits = self.width, len(self.rd.addr)
+            nbe = width if self.bit_mask else 1
+            wa = Signal(abits, reset_less=True)
+            wd = Signal(width, reset_less=True)
+            wbe = Signal(nbe, reset_less=True)
+            m.d.sync += [
+                wa.eq(self.wr.addr),
+                wd.eq(self.wr.data),
+                wbe.eq(Mux(self.wr.en, self.wr.mask if self.bit_mask else 1, 0)),
+            ]
+            fwd = Signal(nbe, reset_less=True)
+            fwd_d = Signal(width, reset_less=True)
+            m.d.sync += [fwd.eq(Mux(self.rd.addr == wa, wbe, 0)), fwd_d.eq(wd)]
+            fwd_bits = fwd if self.bit_mask else fwd.replicate(width)
+            raw = Signal(width)  # data out of the memories
+            if self.poison_collisions:
+                # Simulation only: a physical collision's read data is
+                # undefined on the device; corrupt it (forwarding replaces it).
+                col = Signal(width, reset_less=True)
+                m.d.sync += col.eq(Mux(self.rd.addr == wa, wbe if self.bit_mask
+                                       else wbe.replicate(width), 0))
+                raw_p = raw ^ col
+            else:
+                raw_p = raw
+            m.d.comb += self.rd.data.eq((raw_p & ~fwd_bits) | (fwd_d & fwd_bits))
+
             rsel = {}  # block depth -> one-hot bank of the read issued last cycle
             for lo, used, tw in self.plan:
                 bdepth = _DP16KD_SHAPES[tw][0]
                 bab = bdepth.bit_length() - 1
                 nbanks = -(-self.depth // bdepth)
-                if self.bit_mask:
-                    en = Mux(self.wr.en, self.wr.mask[lo:lo + used], 0)
-                else:
-                    en = self.wr.en
+                en = wbe[lo:lo + used] if self.bit_mask else wbe[0]
                 if nbanks > 1 and bdepth not in rsel:
                     rsel[bdepth] = Signal(nbanks, name=f"rsel{bdepth}", reset_less=True)
                     m.d.sync += rsel[bdepth].eq(
@@ -334,19 +372,17 @@ class Bram(Elaboratable):
                     r = mem.read_port()
                     w = mem.write_port(granularity=1 if self.bit_mask else None)
                     if nbanks > 1:
-                        hit = self.wr.addr[bab:] == b
                         m.d.comb += [
                             r.addr.eq(self.rd.addr[:bab]),
-                            w.addr.eq(self.wr.addr[:bab]),
-                            w.en.eq(Mux(hit, en, 0)),
+                            w.addr.eq(wa[:bab]),
+                            w.en.eq(Mux(wa[bab:] == b, en, 0)),
                         ]
                         acc = acc | Mux(rsel[bdepth][b], r.data, 0)
                     else:
-                        m.d.comb += [r.addr.eq(self.rd.addr), w.addr.eq(self.wr.addr),
-                                     w.en.eq(en)]
+                        m.d.comb += [r.addr.eq(self.rd.addr), w.addr.eq(wa), w.en.eq(en)]
                         acc = r.data
-                    m.d.comb += w.data.eq(self.wr.data[lo:lo + used])
-                m.d.comb += self.rd.data[lo:lo + used].eq(acc)
+                    m.d.comb += w.data.eq(wd[lo:lo + used])
+                m.d.comb += raw[lo:lo + used].eq(acc)
             return m
 
         width, abits = self.width, len(self.rd.addr)
@@ -498,24 +534,28 @@ class Solver(Elaboratable):
         m.submodules.asg_a = asg_a = bram(1)
         m.submodules.asg_v = asg_v = bram(1)
         m.submodules.seen = seen = bram(1)
-        m.submodules.lr = lr = bram(LEV_BITS + SADDR)
+        # Level and reason in separate memories: the level (8192 x 2
+        # blocks, no bank mux) is compared as soon as it is read (Timing).
+        m.submodules.lrl = lrl = bram(LEV_BITS)
+        m.submodules.lrr = lrr = bram(SADDR)
         m.submodules.trail = trail = bram(16)
         m.submodules.heap = heap = bram(VAR_BITS)
         m.submodules.hpos = hpos = bram(VAR_BITS + 1)
         m.submodules.act = act = bram(ACT_BITS)
-        self.brams = [store, asg_a, asg_v, seen, lr, trail, heap, hpos, act]
+        self.brams = [store, asg_a, asg_v, seen, lrl, lrr, trail, heap, hpos, act]
 
         st_r, st_w = store.rd, store.wr
         aa_r, aa_w = asg_a.rd, asg_a.wr
         av_r, av_w = asg_v.rd, asg_v.wr
         sn_r, sn_w = seen.rd, seen.wr
-        lr_r, lr_w = lr.rd, lr.wr
+        lrl_r, lrl_w = lrl.rd, lrl.wr
+        lrr_r, lrr_w = lrr.rd, lrr.wr
         tr_r, tr_w = trail.rd, trail.wr
         hp_r, hp_w = heap.rd, heap.wr
         ps_r, ps_w = hpos.rd, hpos.wr
         ac_r, ac_w = act.rd, act.wr
 
-        for w in (st_w, aa_w, av_w, sn_w, lr_w, tr_w, hp_w, ps_w, ac_w):
+        for w in (st_w, aa_w, av_w, sn_w, lrl_w, lrr_w, tr_w, hp_w, ps_w, ac_w):
             m.d.comb += w.en.eq(0)
 
         # Read address of both assignment memories (always the same variable).
@@ -580,10 +620,21 @@ class Solver(Elaboratable):
             if cur_state[0] not in st_reads[key][1]:
                 st_reads[key][1].append(cur_state[0])
 
+        # The store write address and data are AND-OR muxes too, selected
+        # by fsm_oh (one write address and data per state); the enable and
+        # the mask are set where the write is.
+        st_writes = {}  # repr of (address, data) -> (address, data, [states])
+
         def st_write(addr, data, mask=None):
-            m.d.comb += [st_w.addr.eq(addr), st_w.data.eq(data), st_w.en.eq(1)]
+            assert cur_state[0] is not None
+            m.d.comb += st_w.en.eq(1)
             if mask is not None:
                 m.d.comb += st_w.mask.eq(mask)
+            key = repr((addr, data))
+            if key not in st_writes:
+                st_writes[key] = (addr, data, [])
+            if cur_state[0] not in st_writes[key][2]:
+                st_writes[key][2].append(cur_state[0])
 
         def as_read(var):
             m.d.comb += as_addr.eq(var)
@@ -604,17 +655,16 @@ class Solver(Elaboratable):
             m.d.comb += [sn_w.addr.eq(var), sn_w.data.eq(bit), sn_w.en.eq(1)]
 
         def lr_read(var):
-            m.d.comb += lr_r.addr.eq(var)
+            m.d.comb += [lrl_r.addr.eq(var), lrr_r.addr.eq(var)]
 
         def lr_write(var, level, reason):
             m.d.comb += [
-                lr_w.addr.eq(var),
-                lr_w.data.eq(Cat(level[:LEV_BITS], reason[:SADDR])),
-                lr_w.en.eq(1),
+                lrl_w.addr.eq(var), lrl_w.data.eq(level[:LEV_BITS]), lrl_w.en.eq(1),
+                lrr_w.addr.eq(var), lrr_w.data.eq(reason[:SADDR]), lrr_w.en.eq(1),
             ]
 
-        lr_level = lr_r.data[:LEV_BITS]
-        lr_reason = lr_r.data[LEV_BITS:]
+        lr_level = lrl_r.data
+        lr_reason = lrr_r.data
 
         def tr_read(pos):
             m.d.comb += tr_r.addr.eq(pos)
@@ -877,6 +927,10 @@ class Solver(Elaboratable):
         m.d.comb += lit_mag.eq(Mux(self.load_data < 0, -self.load_data, self.load_data))
         ld_code = Cat(self.load_data < 0, (lit_mag - 1)[:VAR_BITS])
         ld_word = Cat(ld_code, Const(0, 1))
+        # The load's one store write: the terminator flags the last literal;
+        # a clause's first literal goes after the two header words.
+        ld_waddr = Mux(self.load_data == 0, last_addr, Mux(clause_start, lp + 2, lp))
+        ld_wdata = Mux(self.load_data == 0, last_word | (1 << LAST), ld_word)
 
         room = Signal(SADDR + 2)  # free words in the learned area
         m.d.comb += room.eq(self.sdepth - lfree)
@@ -922,7 +976,7 @@ class Solver(Elaboratable):
                         with m.If(clause_start):
                             m.d.sync += empty_clause.eq(1)
                         with m.Else():
-                            st_write(last_addr, last_word | (1 << LAST))
+                            st_write(ld_waddr, ld_wdata)
                         m.d.sync += clause_start.eq(1)
                     with m.Elif(lit_mag > self.nvars):
                         m.d.sync += bad_input.eq(1)
@@ -930,7 +984,7 @@ class Solver(Elaboratable):
                         with m.If(lp + 3 > self.sdepth):
                             m.d.sync += bad_input.eq(1)
                         with m.Else():
-                            st_write(lp + 2, ld_word)
+                            st_write(ld_waddr, ld_wdata)
                             m.d.sync += [
                                 lp.eq(lp + 3),
                                 lit0.eq(ld_code),
@@ -944,7 +998,7 @@ class Solver(Elaboratable):
                     with m.Elif(lp >= self.sdepth):
                         m.d.sync += bad_input.eq(1)
                     with m.Else():
-                        st_write(lp, ld_word)
+                        st_write(ld_waddr, ld_wdata)
                         m.d.sync += [
                             lp.eq(lp + 1),
                             clen2.eq(1),
@@ -1294,10 +1348,7 @@ class Solver(Elaboratable):
             with State("F5"):
                 # Unlink cur from fl's list. The visit reads nxt's header in
                 # this cycle: nxt is neither cur nor prev and not a head.
-                with m.If(prev_head):
-                    st_write(fl, nxt)
-                with m.Else():
-                    st_write(prev[:SADDR], nxt)
+                st_write(Mux(prev_head, fl, prev[:SADDR]), nxt)
                 visit(nxt)
 
             # ------------------------------------------------------- decide
@@ -1891,6 +1942,16 @@ class Solver(Elaboratable):
         for t in terms[1:]:
             acc = acc | t
         m.d.comb += st_r.addr.eq(acc)
+        seen_states = [n for _, _, states in st_writes.values() for n in states]
+        assert len(seen_states) == len(set(seen_states)), "two store writes in one state"
+        wa = wd = 0
+        for addr, data, states in st_writes.values():
+            sel = 0
+            for name in states:
+                sel = sel | fsm_oh[state_index[name]]
+            wa = wa | Mux(sel, addr, 0)
+            wd = wd | Mux(sel, data, 0)
+        m.d.comb += [st_w.addr.eq(wa), st_w.data.eq(wd)]
         # For tests: the state as a number (simulation only; unused, so
         # synthesis removes it) and its encoding, like an Amaranth FSM's.
         dbg_state = Signal(range(NSTATES))
