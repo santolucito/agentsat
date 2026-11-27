@@ -1,18 +1,23 @@
-# Baseline scan-DPLL: an AgentSAT entry
+# Watched-literal DPLL: an AgentSAT entry
 
-A simple, correct SAT solver for the Lattice ECP5-85F, built from the
+A correct SAT solver for the Lattice ECP5-85F, built from the
 [AgentSAT entry template](https://github.com/ManhattanReasoning/agentsat-template).
 
-- **Algorithm:** DPLL with chronological backtracking. Unit propagation scans every
-  clause in block RAM and repeats until a pass makes no new assignment. Decisions
-  take the lowest unassigned variable, false first. See the notes at the top of `solver.py`.
-- **Capacity:** 16,384 variables, 65,536 clauses, 65,536 literals.
-- **Clock:** 50 MHz. An out-of-context nextpnr run reaches about 70 MHz. It uses 82 DP16KD,
-  about 1.2k LUTs and 385 FFs.
+- **Algorithm:** DPLL with chronological backtracking and MiniSat-style two-watched-literal
+  unit propagation. The watch lists are linked lists threaded through the clause headers in
+  block RAM, and the trail doubles as the propagation queue. Decisions take the lowest
+  unassigned variable (through a monotone pointer) with a saved phase, false at first. See the
+  notes at the top of `solver.py`.
+- **Capacity:** 16,384 variables, 16,384 clauses, 65,535 literals. Any instance within all
+  three limits fits the clause store (1 + 2 x clauses + literals <= 98,304 words).
+- **Clock:** 50 MHz. An out-of-context nextpnr run reaches about 58 MHz. It uses 163 DP16KD
+  (of the 183 available), about 2.5k LUTs and 750 FFs.
 - **Tests:** `pip install amaranth==0.5.8 pytest && pytest`. Random CNFs are checked against
-  brute force through the full Wishbone shell, along with abort and re-solve.
+  brute force through the full Wishbone shell, along with watched-literal edge cases
+  (duplicate literals, tautologies, units, width-200 clauses, implication chains,
+  pigeonhole) and abort and re-solve.
 
-This is a baseline. It is correct, but slow on large instances.
+DPLL without clause learning is still weak on hard instances.
 
 ---
 

@@ -2,9 +2,9 @@
 yaml_version: 1
 
 project:
-  title: "Baseline scan-DPLL"
+  title: "Watched-literal DPLL"
   author: "Mark Santolucito"
-  description: "DPLL with chronological backtracking; unit propagation by repeated full-clause scans over block RAM."
+  description: "DPLL with chronological backtracking and two-watched-literal unit propagation over block RAM."
   language: amaranth          # amaranth | verilog
   clock_hz: 50000000          # your design clock, in Hz
 
