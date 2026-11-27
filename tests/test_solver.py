@@ -442,3 +442,49 @@ def test_abort_mid_solve_large_then_small():
             check(nvars, clauses, res, model)
 
     run_sim(dut, body)
+
+
+# ---------------------------------------------------------------------------
+# Variables that occur in no clause.
+
+
+def test_unused_variables_are_never_flipped():
+    # Before the fix, every unused variable numbered below the used ones was
+    # decided and flipped by chronological backtracking, doubling the run time
+    # each: with 40 of them this UNSAT instance would never finish. Now they
+    # are assigned false at start-up and never decided.
+    k = 40
+    a, b, c = k + 1, k + 2, k + 3
+    unsat = [[s1 * a, s2 * b, s3 * c] for s1 in (1, -1) for s2 in (1, -1) for s3 in (1, -1)]
+    sat = [[a, b], [-a, c], [-b, -c], [k + 5]]  # vars 1..40 and 44 unused
+    cases = [
+        (k + 3, unsat),
+        (k + 5, sat),
+        (k + 3, unsat + [[3, 7], [-3, 7], [3, -7], [-3, -7]]),  # interleaved
+        (20, [[20], [-1, 2], [-2, 1]]),  # used vars below, unused in between
+    ]
+    run_cases(cases, max_polls=3000)
+
+
+def test_size_rewrite_resets_load_position():
+    # Spec 3.4: writing a size restarts the stream. (A rewrite with the same
+    # values is not visible to the Solver; the runner always ABORTs first.)
+    dut = Entry()
+
+    async def body(ctx):
+        await wb(ctx, dut, R_CTRL, True, ABORT)
+        for _ in range(20):
+            if await wb(ctx, dut, R_STATUS) == 0:
+                break
+        await load(ctx, dut, 1, 1, 1, [-1, 0])
+        await load(ctx, dut, 2, 1, 1, [1, 0])  # (x1), 2 vars: SAT
+        await wb(ctx, dut, R_CTRL, True, START)
+        for _ in range(2000):
+            st = await wb(ctx, dut, R_STATUS)
+            if st & (DONE | REJECTED):
+                break
+        assert st == DONE
+        assert await wb(ctx, dut, R_RESULT) == SAT
+        assert s32(await wb(ctx, dut, WINDOW)) == 1
+
+    run_sim(dut, body)

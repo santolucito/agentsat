@@ -47,7 +47,11 @@ last literal is rewritten with its "last" flag, and in the following cycle
 (with load_ready low) header word 0 is written with the address of the next
 clause, which the start-up scan uses to step from clause to clause. At START
 the solver clears the assignments and watch-list heads, then scans the clause
-store once: unit clauses are assigned at level 0 (a unit that contradicts an
+store twice. The first pass (MARK) finds the variables that occur in some
+clause; every other variable stays assigned false for the whole solve, so it
+is never decided and never flipped by a backtrack (without this, each unused
+variable numbered below the used ones doubles the run time). In the second
+pass, unit clauses are assigned at level 0 (a unit that contradicts an
 earlier one means UNSAT), and every other clause is pushed on the watch lists
 of its first two literals. An empty clause means UNSAT at once.
 
@@ -95,8 +99,13 @@ could hit the same address):
     move a watch                         ~10 cycles plus the scan
     imply the other watch                ~5 cycles
     pop one trail entry on backtrack     1 cycle
-    start-up                             2*nvars cycles of clearing, then
+    start-up                             2*nvars cycles of clearing, one
+                                         cycle per store word (MARK), then
                                          about 9 cycles per clause
+
+Writing a size while idle restarts the load (spec 3.4) when the value changes;
+design.py passes no write strobe, so a rewrite with identical values is not
+seen. The runner writes ABORT before every load, which resets everything.
 
 Instance isolation: every register is reset by ABORT (ResetInserter), the
 assignments and watch heads are cleared at START, the trail is written before
@@ -222,6 +231,9 @@ class Solver(Elaboratable):
         clause_start = Signal(init=1)  # the next literal starts a clause
         empty_clause = Signal()
         bad_input = Signal()
+        # Sizes as last seen, to restart the load when one changes (spec 3.4).
+        sz_seen = Signal(96)
+        sz_now = Cat(self.nvars, self.nclauses, self.nlits)
 
         # ---- solve state ----
         nv = Signal(VAR_BITS + 1)  # number of variables (<= max_vars)
@@ -237,6 +249,13 @@ class Solver(Elaboratable):
         nxtc = Signal(SADDR)  # header of the clause after it
         lit0w = Signal(16)
         lit1w = Signal(16)
+
+        # mark pass
+        ma = Signal(SADDR + 1)  # next store word to read
+        m_rv = Signal()  # a word was read last cycle
+        m_skip = Signal(2)  # header words left before the next literal
+        mw = Signal(16)  # literal word to mark
+        mw_valid = Signal()
 
         # watch-list walk
         fl = Signal(CODE_BITS)  # the literal that just became false
@@ -288,7 +307,21 @@ class Solver(Elaboratable):
             # ------------------------------------------------------------ load
             with m.State("IDLE"):
                 m.d.comb += [self.idle.eq(1), self.load_ready.eq(~pend)]
-                with m.If(pend):
+                m.d.sync += sz_seen.eq(sz_now)
+                with m.If(sz_now != sz_seen):
+                    # A size was rewritten: the stream starts over (spec 3.4).
+                    # A rewrite with identical values cannot be seen here, as
+                    # design.py passes no write strobe; the runner always
+                    # writes ABORT before a load, which resets everything.
+                    m.d.sync += [
+                        lp.eq(1),
+                        clause_start.eq(1),
+                        clen2.eq(0),
+                        pend.eq(0),
+                        empty_clause.eq(0),
+                        bad_input.eq(0),
+                    ]
+                with m.Elif(pend):
                     # Header word 0 of the clause just ended: next clause address.
                     st_write(hcur, lp)
                     m.d.sync += pend.eq(0)
@@ -348,13 +381,38 @@ class Solver(Elaboratable):
                     with m.Else():
                         m.next = "CLEAR"
 
-            # Clear the watch heads of every literal and every assignment.
+            # Clear the watch heads of every literal, and assign every
+            # variable false. The mark pass then unassigns the variables that
+            # occur in some clause, so a variable that occurs nowhere stays
+            # assigned for the whole solve: it is never decided, never on the
+            # trail and never flipped by a backtrack.
             with m.State("CLEAR"):
                 with m.If(ci < Cat(Const(0, 1), nv)):
                     hd_write(ci, 0)
-                    as_write(ci[1:], 0)
+                    as_write(ci[1:], 0b10)
                     m.d.sync += ci.eq(ci + 1)
                 with m.Else():
+                    m.d.sync += [ma.eq(1), m_rv.eq(0), m_skip.eq(2), mw_valid.eq(0)]
+                    m.next = "MARK"
+
+            # Read the clause store word by word (one per cycle) and unassign
+            # the variable of every literal word. Each clause is two header
+            # words, then literals up to the one with the last flag. Store data
+            # reaches asg's address only through a register (mw).
+            with m.State("MARK"):
+                d = st_r.data
+                m.d.comb += st_r.addr.eq(ma)
+                m.d.sync += [ma.eq(ma + 1), m_rv.eq(ma < lp), mw.eq(d), mw_valid.eq(0)]
+                with m.If(m_rv):
+                    with m.If(m_skip != 0):
+                        m.d.sync += m_skip.eq(m_skip - 1)
+                    with m.Else():
+                        m.d.sync += mw_valid.eq(1)
+                        with m.If(d[LAST]):
+                            m.d.sync += m_skip.eq(2)
+                with m.If(mw_valid):
+                    as_write(mw[1:CODE_BITS], 0)
+                with m.If((ma >= lp) & ~m_rv & ~mw_valid):
                     m.next = "I0"
 
             # ------------------------------------------------ start-up scan
