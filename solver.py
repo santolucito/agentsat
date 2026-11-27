@@ -90,7 +90,9 @@ Memories (one read and one write port each, block RAM)
                          h     next pointer of the watch at position 0
                          h+1   next pointer of the watch at position 1
                          h+2.. literals: [0] negative, [14:1] variable
-                               (0-based), [15] last literal of the clause
+                               (0-based), [15] last literal of the clause,
+                               [17] (position 0 only) the clause is binary
+                               (set when it is linked)
                        A learned clause also has a meta word at h-1:
                          [0] glue (LBD <= 2), [1] used since last reduction.
                        A pointer to the watch in slot s of clause h is
@@ -194,6 +196,7 @@ MAX_LEVEL = (1 << LEV_BITS) - 1
 # Literal word fields.
 LAST = 15
 RMV = 16  # learned literal flagged for removal (only during minimization)
+BIN = 17  # on position 0: the clause has exactly two literals
 # Meta word fields (learned clauses).
 M_GLUE = 0
 M_USED = 1
@@ -300,27 +303,48 @@ class Bram(Elaboratable):
     def elaborate(self, platform):
         m = Module()
         if not self.primitives:
-            # One Memory per column group of the block plan (bits lo..lo+used),
-            # so yosys tiles each group into the same DP16KD shape the
-            # primitive build uses (for example 2048x9 blocks for a 9-bit
-            # group) instead of falling back to x1 columns for the whole
-            # width. Splitting by columns does not change behaviour.
-            for lo, used, _tw in self.plan:
-                mem = Memory(shape=used, depth=self.depth, init=[])
-                m.submodules[f"mem{lo}"] = mem
-                r = mem.read_port()
-                w = mem.write_port(granularity=1 if self.bit_mask else None)
+            # One Memory per column group of the block plan (bits lo..lo+used)
+            # and per bank (block depth), so yosys tiles each into exactly
+            # one DP16KD of the shape the primitive build uses (for example
+            # 2048x9 for a 9-bit group). The banks' read data is combined
+            # here with a one-hot bank select registered from the read
+            # address (an AND-OR, two LUT levels for five banks; yosys'
+            # own bank mux decodes a binary select first). Splitting by
+            # columns and banks does not change behaviour.
+            rsel = {}  # block depth -> one-hot bank of the read issued last cycle
+            for lo, used, tw in self.plan:
+                bdepth = _DP16KD_SHAPES[tw][0]
+                bab = bdepth.bit_length() - 1
+                nbanks = -(-self.depth // bdepth)
                 if self.bit_mask:
                     en = Mux(self.wr.en, self.wr.mask[lo:lo + used], 0)
                 else:
                     en = self.wr.en
-                m.d.comb += [
-                    r.addr.eq(self.rd.addr),
-                    self.rd.data[lo:lo + used].eq(r.data),
-                    w.addr.eq(self.wr.addr),
-                    w.data.eq(self.wr.data[lo:lo + used]),
-                    w.en.eq(en),
-                ]
+                if nbanks > 1 and bdepth not in rsel:
+                    rsel[bdepth] = Signal(nbanks, name=f"rsel{bdepth}", reset_less=True)
+                    m.d.sync += rsel[bdepth].eq(
+                        Cat(self.rd.addr[bab:] == b for b in range(nbanks)))
+                acc = 0
+                for b in range(nbanks):
+                    depth = min(bdepth, self.depth - b * bdepth) if nbanks > 1 else self.depth
+                    mem = Memory(shape=used, depth=depth, init=[])
+                    m.submodules[f"mem{lo}" if nbanks == 1 else f"mem{lo}_b{b}"] = mem
+                    r = mem.read_port()
+                    w = mem.write_port(granularity=1 if self.bit_mask else None)
+                    if nbanks > 1:
+                        hit = self.wr.addr[bab:] == b
+                        m.d.comb += [
+                            r.addr.eq(self.rd.addr[:bab]),
+                            w.addr.eq(self.wr.addr[:bab]),
+                            w.en.eq(Mux(hit, en, 0)),
+                        ]
+                        acc = acc | Mux(rsel[bdepth][b], r.data, 0)
+                    else:
+                        m.d.comb += [r.addr.eq(self.rd.addr), w.addr.eq(self.wr.addr),
+                                     w.en.eq(en)]
+                        acc = r.data
+                    m.d.comb += w.data.eq(self.wr.data[lo:lo + used])
+                m.d.comb += self.rd.data[lo:lo + used].eq(acc)
             return m
 
         width, abits = self.width, len(self.rd.addr)
@@ -652,6 +676,8 @@ class Solver(Elaboratable):
         m_skip = Signal(2)
         mw = Signal(16)
         mw_valid = Signal()
+        m_d = Signal(16)
+        m_dv = Signal()
 
         # VMTF queue
         hn = Signal(VAR_BITS + 1)  # heap size
@@ -692,6 +718,9 @@ class Solver(Elaboratable):
         h3 = Signal(SADDR + 1)
         h4 = Signal(SADDR + 1)
         sk1 = Signal(SADDR + 1)
+        isk_last = Signal()
+        isk_addr = Signal(SADDR + 1)
+        isk_addr1 = isk_addr + 1
         lit0w = Signal(16)
         lit1w = Signal(16)
         lret = Signal()  # linking a learned clause (else scanning)
@@ -703,7 +732,7 @@ class Solver(Elaboratable):
         nxt2 = Signal(18)  # and the one after that (speculative)
         prev = Signal(18)  # the kept entry before it ...
         prev_head = Signal()  # ... or the list head
-        other = Signal(16)  # the other watched literal of cur
+        other = Signal(18)  # the other watched literal of cur (word)
         oth_asg = Signal(2)  # its assignment
         c1 = Signal(16)  # replacement scan: newest word read ...
         c1_addr = Signal(SADDR)
@@ -722,7 +751,6 @@ class Solver(Elaboratable):
         nxt_s = nxt[SADDR]
         cur_oa = Signal(SADDR + 1)  # other watched literal of cur
         cur_own = Signal(SADDR + 1)  # cur's own watched literal (header + 2 + slot)
-        cur_we = Signal(SADDR + 1)  # WE read: position 1 (slot 1) or 2 (slot 0)
         cur_h4 = Signal(SADDR + 1)  # header + 4: position 2
         cur_rsn = Signal(SADDR + 1)  # reason code: header + 2
         nxt_oa = Signal(SADDR + 1)  # other watched literal of nxt
@@ -737,7 +765,6 @@ class Solver(Elaboratable):
                 cur.eq(p),
                 cur_oa.eq(other_addr(p)),
                 cur_own.eq(pp + 2),
-                cur_we.eq(Mux(ps, pp + 2, pp + 4)),
                 cur_h4.eq(Mux(ps, pp + 3, pp + 4)),
                 cur_rsn.eq(Mux(ps, pp + 1, pp + 2)),
             ]
@@ -941,17 +968,19 @@ class Solver(Elaboratable):
                         ac_write(ci[1:], 0)
                     m.d.sync += ci.eq(ci + 1)
                 with m.Else():
-                    m.d.sync += [ma.eq(nv2p1), m_rv.eq(0), m_skip.eq(2), mw_valid.eq(0)]
+                    m.d.sync += [ma.eq(nv2p1), m_rv.eq(0), m_dv.eq(0), m_skip.eq(2),
+                                 mw_valid.eq(0)]
                     goto("MARK")
 
             # Read the original clauses word by word and unassign the variable
             # of every literal word (two header words, then literals up to the
             # one with the last flag). Store data reaches asg only through mw.
             with State("MARK"):
-                d = st_r.data
+                d = m_d  # the word read two cycles ago (registered: Timing)
                 st_read(ma)
-                m.d.sync += [ma.eq(ma + 1), m_rv.eq(ma < oend), mw.eq(d), mw_valid.eq(0)]
-                with m.If(m_rv):
+                m.d.sync += [ma.eq(ma + 1), m_rv.eq(ma < oend), m_d.eq(st_r.data),
+                             m_dv.eq(m_rv), mw.eq(d), mw_valid.eq(0)]
+                with m.If(m_dv):
                     with m.If(m_skip != 0):
                         m.d.sync += m_skip.eq(m_skip - 1)
                     with m.Else():
@@ -960,7 +989,7 @@ class Solver(Elaboratable):
                             m.d.sync += m_skip.eq(2)
                 with m.If(mw_valid):
                     as_unassign(mw[1:CODE_BITS])
-                with m.If((ma >= oend) & ~m_rv & ~mw_valid):
+                with m.If((ma >= oend) & ~m_rv & ~m_dv & ~mw_valid):
                     m.d.sync += [qv.eq(0), q_rv.eq(0), hn.eq(0)]
                     goto("QI")
 
@@ -992,17 +1021,17 @@ class Solver(Elaboratable):
                     goto("I1")
 
             with State("I1"):
-                d = st_r.data
-                m.d.sync += lit0w.eq(d)
+                m.d.sync += lit0w.eq(st_r.data)
                 st_read(h3)  # unconditional: store data never steers its address
-                with m.If(d[LAST]):
-                    goto("IU0")
-                with m.Else():
-                    goto("I2")
+                goto("I2")
 
+            # (Store data steers the FSM only after a register: Timing.)
             with State("I2"):
                 m.d.sync += lit1w.eq(st_r.data)
-                goto("LK0")
+                with m.If(lit0w[LAST]):
+                    goto("IU0")
+                with m.Else():
+                    goto("LK0")
 
             # Unit clause: at start-up assign it at level 0; on a rebuild it
             # is assigned already (level-0 assignments are permanent).
@@ -1031,19 +1060,21 @@ class Solver(Elaboratable):
 
             # Skip the rest of a clause of three or more literals.
             with State("ISK"):
-                d = st_r.data
+                # isk_last: the word at isk_addr (arrived last cycle) is last.
                 st_read(sk1)
-                with m.If(d[LAST]):
-                    set_h(sk1 + inl)
+                set_sk(sk1)
+                m.d.sync += [isk_last.eq(st_r.data[LAST] & ~isk_last), isk_addr.eq(sk)]
+                with m.If(isk_last):
+                    set_h(isk_addr1 + inl)
                     goto("I0")
-                with m.Else():
-                    set_sk(sk1)
 
             # Link clause h on the lists of lit0w (slot 0) and lit1w (slot 1),
             # two different literals. A head lives at the store address equal
             # to its literal code.
             with State("LK0"):
                 st_read(lit0w[:CODE_BITS])
+                with m.If(lit1w[LAST]):  # binary: flag position 0 (h + 2)
+                    st_write(h2, Cat(lit0w[:CODE_BITS], Const(0b100, 3)))
                 goto("LK1")
 
             with State("LK1"):
@@ -1078,6 +1109,7 @@ class Solver(Elaboratable):
                 with m.Else():
                     st_read(h4)
                     set_sk(h4)
+                    m.d.sync += isk_last.eq(0)
                     goto("ISK")
 
             # ---------------------------------------------------- propagate
@@ -1154,19 +1186,13 @@ class Solver(Elaboratable):
             # position 1, so its last flag says whether the clause is binary;
             # for slot 1, read position 1 to find out.
             with State("WE"):
-                st_read(cur_we)
+                st_read(cur_h4)
                 m.d.sync += [waddr.eq(cur_h4), waddr1.eq(cur_h4 + 1), c1_valid.eq(0),
                              cand_valid.eq(0)]
-                with m.If(cur_s):
-                    goto("WP1")
-                with m.Elif(other[LAST]):
-                    goto("NOREP")
-                with m.Else():
-                    goto("SRCH")
-
-            with State("WP1"):
-                st_read(cur_h4)
-                with m.If(st_r.data[LAST]):
+                # Binary: for slot 0 the other watch is position 1, whose
+                # last flag says so; for slot 1 it is position 0, which
+                # carries the BIN flag.
+                with m.If(Mux(cur_s, other[BIN], other[LAST])):
                     goto("NOREP")
                 with m.Else():
                     goto("SRCH")
@@ -1523,8 +1549,10 @@ class Solver(Elaboratable):
                 with m.If(v1):
                     sn_read(w1[1:CODE_BITS])
                     lr_read(w1[1:CODE_BITS])
-                m.d.sync += [v2.eq(v1), v3.eq(v2 & ~sn_r.data & (lr_level != 0))]
-                with m.If(v3):
+                # Stage 3 registers the seen mark and level test (Timing),
+                # stage 4 judges.
+                m.d.sync += [v2.eq(v1), v3.eq(v2), s3.eq(sn_r.data), l3nz.eq(lr_level != 0)]
+                with m.If(v3 & ~s3 & l3nz):
                     m.d.sync += mfail.eq(1)
                 with m.If(mfail | (~rv & ~v1 & ~v2 & ~v3)):
                     goto("MN6")
@@ -1577,7 +1605,7 @@ class Solver(Elaboratable):
             # the lower-level literals at lh+3 .. lw-1. Swap the literal of
             # the highest level into position 1 and flag the last word.
             with State("AU0"):
-                st_write(lh + 2, Cat(te[VAR_BITS], te[:VAR_BITS]))
+                st_write(lh + 2, Cat(te[VAR_BITS], te[:VAR_BITS], Const(0, 2), lw == lh + 4))
                 with m.If(lw == lh + 3):
                     # Unit clause: assert at level 0, not stored.
                     m.d.sync += [bjl.eq(0), ureason.eq(0), bjk.eq(0)]
