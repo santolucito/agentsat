@@ -663,7 +663,18 @@ class Solver(Elaboratable):
         oldhead = Signal(18)
         pf_oth = Signal(18)  # prefetched: the other watch of nxt ...
         pf_n3 = Signal(18)  # ... and the entry after nxt2
-        mvcur = Signal(18)  # the entry being moved (pushed in WRF)
+        # Pending store writes of a watch move (F2), done in the next cycles
+        # in which the FSM does not write the store.
+        pv1 = Signal()
+        pa1 = Signal(SADDR)
+        pd1 = Signal(18)
+        pv2 = Signal()
+        pa2 = Signal(SADDR)
+        pd2 = Signal(18)
+        pend = pv1 | pv2
+        drain_ok = Signal()  # this state does not write the store
+        byp = Signal()  # WY after NOREP: other's variable was just assigned ...
+        byp_val = Signal()  # ... this value
         ldirty = Signal()  # the link of prev (or the head) still points at a moved entry
 
         cur_h, cur_s = cur[:SADDR], cur[SADDR]
@@ -754,7 +765,7 @@ class Solver(Elaboratable):
             st_read(p[:SADDR] + p[SADDR])
             m.d.sync += cur.eq(p)
             with m.If(p[:SADDR] == 0):
-                m.next = "Q0"  # end of the list
+                m.next = "QF"  # end of the list (the caller reads the trail)
             with m.Else():
                 m.next = "WB"
 
@@ -787,6 +798,16 @@ class Solver(Elaboratable):
         # Handles for debugging in simulation (no hardware).
         self.dbg = dict(dl=dl, tp=tp, crst=crst, redc=redc, lfree=lfree, qhead=qhead, hn=hn,
                         path_c=path_c, lw=lw, lh=lh, bjl=bjl)
+
+        # Drain the pending writes, in states that never write the store
+        # (drain_ok depends only on the state, for timing).
+        with m.If(drain_ok):
+            with m.If(pv1):
+                m.d.comb += [st_w.addr.eq(pa1), st_w.data.eq(pd1), st_w.en.eq(1)]
+                m.d.sync += pv1.eq(0)
+            with m.Elif(pv2):
+                m.d.comb += [st_w.addr.eq(pa2), st_w.data.eq(pd2), st_w.en.eq(1)]
+                m.d.sync += pv2.eq(0)
 
         with m.FSM(init="IDLE") as fsm:
             self.dbg["fsm"] = fsm
@@ -1025,7 +1046,7 @@ class Solver(Elaboratable):
             # ---------------------------------------------------- propagate
             # Q0 reads the next trail entry. QF does the same work as Q1 with
             # an entry read in the cycle before it: the states that go to QF
-            # (WY, F5, Q3, Q4) read trail[qhead] and write no trail entry,
+            # (WY, F5, Q4) read trail[qhead] and write no trail entry,
             # so the read is current.
             def start_entry():
                 m.d.sync += [
@@ -1037,9 +1058,11 @@ class Solver(Elaboratable):
                 m.next = "Q2"
 
             with m.State("Q0"):
+                m.d.comb += drain_ok.eq(1)
                 tr_read(qhead)
                 with m.If(qhead == tp):
-                    m.next = "DEC"
+                    with m.If(~pend):  # leave propagation only without pending writes
+                        m.next = "DEC"
                 with m.Else():
                     m.next = "Q1"
 
@@ -1047,24 +1070,30 @@ class Solver(Elaboratable):
                 start_entry()
 
             with m.State("QF"):
+                m.d.comb += drain_ok.eq(1)
+                tr_read(qhead)
                 with m.If(qhead == tp):
-                    m.next = "DEC"
+                    with m.If(~pend):  # (Q0)
+                        m.next = "DEC"
                 with m.Else():
                     start_entry()
 
             with m.State("Q2"):
-                st_read(fl)  # its watch-list head
-                m.next = "Q3"
+                m.d.comb += drain_ok.eq(1)
+                # Its watch-list head. A pending write of this head (a move
+                # to fl's list) is done first; the one of the moved entry's
+                # next pointer, pending too, is always done before it.
+                with m.If(~(pv2 & (pa2 == fl))):
+                    st_read(fl)
+                    m.next = "Q3"
 
             with m.State("Q3"):
-                tr_read(qhead)
+                m.d.comb += drain_ok.eq(1)
                 m.d.sync += nxt.eq(st_r.data)
-                with m.If(st_r.data[:SADDR] == 0):
-                    m.next = "QF"  # empty list
-                with m.Else():
-                    m.next = "Q4"
+                m.next = "Q4"
 
             with m.State("Q4"):
+                m.d.comb += drain_ok.eq(1)
                 tr_read(qhead)
                 visit(nxt)
 
@@ -1075,7 +1104,7 @@ class Solver(Elaboratable):
             # list ends. When cur's watch is not kept, the two words already
             # read for the entries after it (nxt's other watch, nxt2's next
             # pointer) are kept in pf_oth / pf_n3, and after the imply or the
-            # move the walk resumes at WR / WRF with them (no WB / WC).
+            # move the walk resumes with them at WY (no WB, WC, WX).
             #
             # Unlinking is deferred: a moved entry leaves the link of prev (or
             # the head) pointing at it (ldirty), and that link is rewritten
@@ -1088,34 +1117,28 @@ class Solver(Elaboratable):
             # says the same (set when the clause is linked, see LK0), so the
             # walk knows at WY whether a replacement can exist.
             with m.State("WB"):
+                m.d.comb += drain_ok.eq(1)
                 m.d.sync += nxt.eq(st_r.data)
                 st_read(other_addr(cur_h, cur_s))
                 m.next = "WC"
 
             with m.State("WC"):
+                m.d.comb += drain_ok.eq(1)
                 m.d.sync += other.eq(st_r.data)
                 st_read(nxt_h + nxt_s)
                 m.next = "WX"
 
-            def look_other():
+            with m.State("WX"):
+                m.d.comb += drain_ok.eq(1)
+                m.d.sync += nxt2.eq(st_r.data)
                 as_read(other[1:CODE_BITS])
                 st_read(other_addr(nxt_h, nxt_s))
                 tr_read(qhead)
                 m.next = "WY"
 
-            with m.State("WX"):
-                m.d.sync += nxt2.eq(st_r.data)
-                look_other()
-
-            with m.State("WR"):  # WX after a resume: nxt2 is set already
-                look_other()
-
-            with m.State("WRF"):  # WR, finishing a move: push it on cand's list
-                st_write(cand[:CODE_BITS], mvcur)
-                look_other()
-
             with m.State("WY"):
-                a = as_data
+                a = Mux(byp, Cat(byp_val, Const(1, 1)), as_data)
+                m.d.sync += byp.eq(0)
                 st_read(nxt2[:SADDR] + nxt2[SADDR])
                 tr_read(qhead)
                 m.d.sync += [oth_asg.eq(a), pf_oth.eq(st_r.data)]
@@ -1143,6 +1166,7 @@ class Solver(Elaboratable):
             # Look for a replacement watch in positions 2.. (the clause has
             # at least three literals).
             with m.State("WE"):
+                m.d.comb += drain_ok.eq(1)
                 st_read(cur_h + 4)
                 m.d.sync += [waddr.eq(cur_h + 4), c1_valid.eq(0), pf_n3.eq(st_r.data)]
                 m.next = "SRCH"
@@ -1153,6 +1177,7 @@ class Solver(Elaboratable):
             # straight from store read data); the next cycle judges it.
             # Nothing is written.
             with m.State("SRCH"):
+                m.d.comb += drain_ok.eq(1)
                 a = ass_data
                 c_false = a[1] & (a[0] == c1[0])
                 d = st_r.data
@@ -1176,6 +1201,13 @@ class Solver(Elaboratable):
                         waddr.eq(waddr + 1),
                     ]
 
+            def resume_wy():
+                # Resume, doing WR's work for the new cur (nxt) here.
+                resume("WY")
+                as_read(pf_oth[1:CODE_BITS])
+                st_read(other_addr(nxt2[:SADDR], nxt2[SADDR]))
+                tr_read(qhead)
+
             # No replacement: imply the other watch, or conflict.
             def no_replacement():
                 # cur stays on the list either way.
@@ -1190,7 +1222,12 @@ class Solver(Elaboratable):
                     tr_write(tp, v, ~other[0], 0)
                     lr_write(v, dl, cur_h)
                     m.d.sync += [tp.eq(tp + 1), prev.eq(cur), prev_head.eq(0)]
-                    resume("WR")
+                    resume_wy()
+                    # The asg read issued here does not see the assignment
+                    # just written: WY takes it from byp when it is the same
+                    # variable.
+                    m.d.sync += [byp.eq((pf_oth[1:CODE_BITS] == v) & (nxt_h != 0)),
+                                 byp_val.eq(~other[0])]
 
             with m.State("NOREP"):
                 no_replacement()
@@ -1200,38 +1237,42 @@ class Solver(Elaboratable):
                 m.d.sync += nxt2.eq(st_r.data)  # (resume would use pf_n3)
 
             # Replacement found at cand_addr: move the watch there. Four
-            # store writes, one per cycle, the last one (in WRF) overlapping
-            # the next visit; cur is unlinked later (ldirty).
+            # store writes: two here, and two (cur's next pointer, the head of
+            # cand's list) left pending, done in the next cycles without a
+            # store write of the FSM. Their words are not read before then:
+            # the walk reads only words of the entries after cur on fl's list
+            # and of their clauses; the moved slot's next pointer is on cand's
+            # list only, which Q2 does not start while its head is pending;
+            # F1 waits for both; and propagation ends (DEC, CONFL) only after
+            # them. cur is unlinked later (ldirty).
             with m.State("F1"):
-                # The false literal goes where the candidate was, keeping that
-                # position's flags.
-                st_write(cand_addr, Cat(fl, cand[LAST:]))
-                st_read(cand[:CODE_BITS])  # head of cand (!= fl: cand is not false)
-                m.next = "F2"
+                with m.If(pend):
+                    # The last move's writes are still pending (rare).
+                    m.d.comb += drain_ok.eq(1)
+                with m.Else():
+                    # The false literal goes where the candidate was, keeping
+                    # that position's flags.
+                    st_write(cand_addr, Cat(fl, cand[LAST:]))
+                    st_read(cand[:CODE_BITS])  # head of cand (!= fl: cand is not false)
+                    m.next = "F2"
 
             with m.State("F2"):
                 # The watch position gets the candidate (positions 0 and 1 are
                 # never last here, and the clause is not binary).
                 st_write(other_addr(cur_h, ~cur_s), Cat(cand[:CODE_BITS], Const(0, 3)))
-                m.d.sync += oldhead.eq(st_r.data)
-                m.next = "F3"
-
-            with m.State("F3"):
-                st_write(cur_h + cur_s, oldhead)
-                m.d.sync += mvcur.eq(cur)
+                m.d.sync += [
+                    pv1.eq(1), pa1.eq(cur_h + cur_s), pd1.eq(st_r.data),  # cur -> old head
+                    pv2.eq(1), pa2.eq(cand[:CODE_BITS]), pd2.eq(cur),  # head -> cur
+                ]
                 with m.If(nxt_h == 0):
-                    m.next = "F4"
+                    m.next = "F5"
                 with m.Else():
                     m.d.sync += ldirty.eq(1)
-                    resume("WRF")
-
-            with m.State("F4"):
-                st_write(cand[:CODE_BITS], cur)  # push cur on cand's list
-                m.next = "F5"
+                    resume_wy()
 
             with m.State("F5"):
                 # cur was the last entry: end the list at prev (or the head).
-                fix_link(nxt)
+                fix_link(Const(0, 18))
                 tr_read(qhead)
                 m.next = "QF"
 
@@ -1353,7 +1394,10 @@ class Solver(Elaboratable):
 
             # ----------------------------------------------------- conflict
             with m.State("CONFL"):
-                with m.If(dl == 0):
+                m.d.comb += drain_ok.eq(1)
+                with m.If(pend):
+                    pass  # (Q0)
+                with m.Elif(dl == 0):
                     finish(2)
                 with m.Elif(room < tp + 8):
                     # The learned clause might not fit: drop this conflict,
