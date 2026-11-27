@@ -76,6 +76,14 @@ struct Sim {
     ctx->commandArgs(argc, argv);
     top.reset(new Vsolver(ctx.get()));
     top->clk = 0;
+    // Every input starts at a defined value: with +verilator+rand+reset+2 an
+    // undriven input (start, load_valid) would start random.
+    top->__SYM__abort = 0;
+    top->start = 0;
+    top->load_valid = 0;
+    top->load_data = 0;
+    top->nvars = top->nclauses = top->nlits = 0;
+    top->model_addr = 0;
     top->rst = 1;
     top->eval();
     tick();

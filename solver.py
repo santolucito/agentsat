@@ -1067,6 +1067,7 @@ class Solver(Elaboratable):
                     m.next = "Q1"
 
             with m.State("Q1"):
+                m.d.comb += drain_ok.eq(1)
                 start_entry()
 
             with m.State("QF"):
