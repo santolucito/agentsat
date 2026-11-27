@@ -816,6 +816,8 @@ class Solver(Elaboratable):
         c1_valid = Signal()
         cand = Signal(16)  # ... and the candidate being judged
         cand_addr = Signal(SADDR)
+        fcand = Signal(16)  # the replacement found (F1..F4)
+        fcand_addr = Signal(SADDR)
         cand_valid = Signal()
         waddr = Signal(SADDR + 1)
         waddr1 = Signal(SADDR + 1)  # waddr + 1
@@ -1241,26 +1243,13 @@ class Solver(Elaboratable):
                 st_read(nxt_oa)
                 goto("WY")
 
+            # If the other watch is true (wy_keep), keep this watch and go
+            # on to nxt (Q0 at the end of the list); else WE. The decision
+            # depends on asg data read last cycle, so its updates and
+            # transitions are made after the Switch (see "Late decisions").
             with State("WY"):
-                a = as_data
                 st_read(nxt2[:SADDR])
-                m.d.sync += oth_asg.eq(a)
-                with m.If(a[1] & (a[0] != other[0])):
-                    # Other watch is true: keep this watch, go on to nxt.
-                    m.d.sync += [
-                        prev.eq(cur),
-                        prev_head.eq(0),
-                        nxt.eq(nxt2),
-                        nxt_oa.eq(other_addr(nxt2)),
-                        other.eq(st_r.data),
-                    ]
-                    set_cur(nxt)
-                    with m.If(nxt[:SADDR] == 0):
-                        goto("Q0")
-                    with m.Else():
-                        goto("WX")
-                with m.Else():
-                    goto("WE")
+                m.d.sync += oth_asg.eq(as_data)
 
             # Look for a replacement watch. For slot 0 the other watch is
             # position 1, so its last flag says whether the clause is binary;
@@ -1280,32 +1269,26 @@ class Solver(Elaboratable):
             # Scan positions 2.. for a literal that is not false, one per
             # cycle, in a three-stage pipeline (store word -> asg lookup ->
             # verdict). Nothing is written.
+            # The verdict on cand (F1 if it is not false and not the other
+            # watch, NOREP if it is the last literal) depends on asg data read
+            # last cycle: the transitions are made after the Switch (see
+            # "Late decisions"). The pipeline shifts every cycle; F1.. use
+            # fcand, the candidate judged in the last SRCH cycle.
             with State("SRCH"):
-                a = as_data
-                cand_false = a[1] & (a[0] == cand[0])
-                shift = Signal()
                 as_read(c1[1:CODE_BITS])
                 st_read(waddr1)
-                with m.If(cand_valid):
-                    with m.If(~cand_false & (cand[:CODE_BITS] != other[:CODE_BITS])):
-                        goto("F1")
-                    with m.Elif(cand[LAST]):
-                        goto("NOREP")
-                    with m.Else():
-                        m.d.comb += shift.eq(1)
-                with m.Else():
-                    m.d.comb += shift.eq(1)
-                with m.If(shift):
-                    m.d.sync += [
-                        cand.eq(c1),
-                        cand_addr.eq(c1_addr),
-                        cand_valid.eq(c1_valid),
-                        c1.eq(st_r.data),
-                        c1_addr.eq(waddr),
-                        c1_valid.eq(1),
-                        waddr.eq(waddr1),
-                        waddr1.eq(waddr1 + 1),
-                    ]
+                m.d.sync += [
+                    fcand.eq(cand),
+                    fcand_addr.eq(cand_addr),
+                    cand.eq(c1),
+                    cand_addr.eq(c1_addr),
+                    cand_valid.eq(c1_valid),
+                    c1.eq(st_r.data),
+                    c1_addr.eq(waddr),
+                    c1_valid.eq(1),
+                    waddr.eq(waddr1),
+                    waddr1.eq(waddr1 + 1),
+                ]
 
             # No replacement: imply the other watch, or conflict.
             with State("NOREP"):
@@ -1324,14 +1307,14 @@ class Solver(Elaboratable):
             with State("F1"):
                 # The false literal goes where the candidate was, keeping that
                 # position's flags.
-                st_write(cand_addr, Cat(fl, cand[LAST:]))
-                st_read(cand[:CODE_BITS])  # head of cand (!= fl: cand is not false)
+                st_write(fcand_addr, Cat(fl, fcand[LAST:]))
+                st_read(fcand[:CODE_BITS])  # head of cand (!= fl: cand is not false)
                 goto("F2")
 
             with State("F2"):
                 # The watch position gets the candidate (positions 0 and 1 are
                 # never last here: the clause has at least 3 literals).
-                st_write(cur_own, Cat(cand[:CODE_BITS], Const(0, 3)))
+                st_write(cur_own, Cat(fcand[:CODE_BITS], Const(0, 3)))
                 m.d.sync += oldhead.eq(st_r.data)
                 goto("F3")
 
@@ -1340,7 +1323,7 @@ class Solver(Elaboratable):
                 goto("F4")
 
             with State("F4"):
-                st_write(cand[:CODE_BITS], cur)  # push cur on cand's list
+                st_write(fcand[:CODE_BITS], cur)  # push cur on cand's list
                 goto("F5")
 
             with State("F5"):
@@ -1927,6 +1910,40 @@ class Solver(Elaboratable):
 
             with State("REJECT"):
                 m.d.comb += self.rejected.eq(1)
+
+        # Late decisions (Timing). These depend on asg data that arrives in
+        # this cycle; written after the Switch, they override it, so the
+        # decision enters the last multiplexer level of each register and
+        # state bit instead of going through the whole Switch.
+        def oh_move(src, dst):
+            m.d.comb += [oh_next[sidx(src)].eq(0), oh_next[sidx(dst)].eq(1)]
+
+        in_wy = fsm_oh[sidx("WY")]
+        wy_keep = Signal()
+        m.d.comb += wy_keep.eq(in_wy & as_data[1] & (as_data[0] != other[0]))
+        with m.If(wy_keep):
+            m.d.sync += [
+                prev.eq(cur),
+                prev_head.eq(0),
+                nxt.eq(nxt2),
+                nxt_oa.eq(other_addr(nxt2)),
+                other.eq(st_r.data),
+            ]
+            set_cur(nxt)
+            with m.If(nxt[:SADDR] == 0):
+                oh_move("WY", "Q0")
+            with m.Else():
+                oh_move("WY", "WX")
+        with m.Elif(in_wy):
+            oh_move("WY", "WE")
+
+        in_srch = fsm_oh[sidx("SRCH")]
+        cand_false = as_data[1] & (as_data[0] == cand[0])
+        with m.If(in_srch & cand_valid):
+            with m.If(~cand_false & (cand[:CODE_BITS] != other[:CODE_BITS])):
+                oh_move("SRCH", "F1")
+            with m.Elif(cand[LAST]):
+                oh_move("SRCH", "NOREP")
 
         terms = []
         seen_states = [n for _, states in st_reads.values() for n in states]
