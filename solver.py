@@ -21,6 +21,12 @@ Conflict-driven clause learning (CDCL), MiniSat style:
                                      the clause to that literal's list
       otherwise, other unassigned -> imply the other watch (reason: clause)
       otherwise                   -> conflict
+  The walk is pipelined (see "Cycle costs"): the next entries' words are
+  read while the current one is judged and kept across an imply or a move;
+  a binary clause is recognised without reading past its watches; a move
+  leaves two of its four store writes pending, done in later cycles without
+  a store write; and a moved entry is unlinked lazily, by one write when the
+  next entry that stays on the list is found.
 * Every assignment records its decision level and its reason (the header
   address of the implying clause, 0 for decisions and level-0 facts).
 * First-UIP conflict analysis: the conflicting clause and then the reasons of
@@ -90,14 +96,19 @@ Memories (one read and one write port each, block RAM)
                          h     next pointer of the watch at position 0
                          h+1   next pointer of the watch at position 1
                          h+2.. literals: [0] negative, [14:1] variable
-                               (0-based), [15] last literal of the clause
+                               (0-based), [15] last literal of the clause;
+                               position 0 (h+2) of a watched clause also has
+                               [17] binary clause (set when it is linked)
                        A learned clause also has a meta word at h-1:
                          [0] glue (LBD <= 2), [1] used since last reduction.
                        A pointer is [16:0] header address, [17] watch slot.
                        Address 0 is the null pointer (it is a head, never a
                        clause).
-    asg_a   8192 x  1  assigned
-    asg_v   8192 x  1  value (kept on unassign: saved phase; the model)
+    asg     8192 x  2  [1] assigned, [0] value (kept on unassign: saved
+                       phase; the model)
+    asgs    8192 x  2  a copy of asg (same writes), read only by the
+                       replacement scan, at the variable of the store word
+                       just read
     seen    8192 x  1  analysis mark
     lr      8192 x 31  [13:0] decision level, [30:14] reason
     trail   8192 x 16  [13:0] variable, [14] value, [15] decision
@@ -113,7 +124,7 @@ no initialisation. Explicit DP16KD instances (bram_primitives = True) give
 the same tiling and behaviour. The store is 16384 x 1 blocks (per-bit write
 enables), 5 banks per bit. The per-variable memories wider than one bit are
 built from 1024 x 18 / 2048 x 9 blocks plus narrower ones for the remaining
-bits. Block RAMs: store 90, asg 2, seen 1, lr 14, trail 8, heap 6, hpos 7,
+bits. Block RAMs: store 90, asg 1, asgs 1, seen 1, lr 14, trail 8, heap 6, hpos 7,
 act 8 = 136 DP16KD. The template says 183 are free, but the real SoC's
 firmware ROM takes more, and the platform allows about 155 (mrg-sandbox#35);
 that limit is why the variable capacity is 8192, not 16384. A Bram behaves exactly like a
@@ -142,18 +153,25 @@ routing. So the store is bit-sliced (read data passes a 5:1 mux), store read
 data never feeds the address, write data or write enable of the store in the
 same cycle (it is registered first; reads past the end of a clause are issued
 speculatively rather than steered by the last flag), the data of the packed
-per-variable memories is registered before it steers control, and only the
-small 1-bit memories (asg, seen) take an address straight from other read
-data. Out of context nextpnr reaches 53-56 MHz (seeds 1-4); the design runs
-at 50 MHz.
+per-variable memories is registered before it steers control, and only
+asgs (whose read address has no other source) takes an address straight
+from store read data. Nothing that depends on read data selects the store's
+read address (a speculative read of the next list head when the scan finds a
+replacement was tried: 41-47 MHz). Pending writes are done only in states
+that never write the store, so whether one is done does not depend on read
+data either. Out of context nextpnr reaches 53-55 MHz (seeds 1-2); the
+design runs at 50 MHz.
 
 Cycle costs (1-cycle read latency; no read in the same cycle as a write that
 could hit the same address):
     keep a watch (other watch true)      2 cycles (visits overlap)
-    start a watch list (per trail entry) ~9 cycles to the first verdict
-    each replacement candidate scanned   1 cycle (pipelined)
-    move a watch                         ~11 cycles plus the scan
-    imply the other watch                ~5 cycles
+    start a watch list (per trail entry) 7 cycles to the first verdict
+    look for a replacement               2 cycles plus 1 per candidate
+                                         judged (none for a binary clause)
+    move a watch                         2 cycles, then the next verdict 1
+                                         cycle later
+    imply the other watch                1 cycle, then the next verdict 1
+                                         cycle later
     analysis: each literal of a resolved clause 1 cycle (pipelined), each
     trail entry walked 4 cycles; minimization ~7 cycles plus the reason
     length per learned literal
