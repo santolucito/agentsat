@@ -104,10 +104,13 @@ Memories (one read and one write port each, block RAM)
     heap   16384 x 14  decision heap: variable at each position
     hpos   16384 x 15  [13:0] heap position of each variable, [14] in heap
     act    16384 x 16  activity
-Each is a `Bram`: explicit ECP5 DP16KD instances (Solver.bram_primitives,
-the default), so the exported Verilog holds no memory initialization at all
-(an amaranth Memory always gets a full zero init, one line per word, which
-yosys elaborates very slowly). The store is 16384 x 1 blocks (per-bit write
+Each is a `Bram`. The competition build (Solver.bram_primitives = False)
+makes it one amaranth Memory per column group of the block plan below, and
+tools/gen_verilog.py deletes the zero initialisers Amaranth gives every
+Memory (one Verilog line per word, which yosys elaborates very slowly, and
+with tens of GB, on this design), so yosys infers exactly this tiling with
+no initialisation. Explicit DP16KD instances (bram_primitives = True) give
+the same tiling and behaviour. The store is 16384 x 1 blocks (per-bit write
 enables), 5 banks per bit. The per-variable memories wider than one bit are
 built from 2048 x 9 blocks (8 per 9 bits) plus 16384 x 1 ones for the
 remaining bits. Block RAMs: store 90, asg 2, seen 1, lr 28, trail 15,
@@ -252,7 +255,7 @@ class Bram(Elaboratable):
     the default arguments: `rd.data` is the word at the address presented on
     the previous clock edge, as it was before a write in that same cycle.
 
-    With `primitives` (the default, see `Solver.bram_primitives`) it is built
+    With `primitives` (see `Solver.bram_primitives`) it is built
     from ECP5 DP16KD block RAM instances, the way yosys maps such a memory
     (memory_libmap), but without any memory initialization in the Verilog (a
     DP16KD is zero after configuration; the solver clears what it needs at
@@ -291,18 +294,27 @@ class Bram(Elaboratable):
     def elaborate(self, platform):
         m = Module()
         if not self.primitives:
-            mem = Memory(shape=self.width, depth=self.depth, init=[])
-            m.submodules.mem = mem
-            r = mem.read_port()
-            w = mem.write_port(granularity=1 if self.bit_mask else None)
-            en = Mux(self.wr.en, self.wr.mask, 0) if self.bit_mask else self.wr.en
-            m.d.comb += [
-                r.addr.eq(self.rd.addr),
-                self.rd.data.eq(r.data),
-                w.addr.eq(self.wr.addr),
-                w.data.eq(self.wr.data),
-                w.en.eq(en),
-            ]
+            # One Memory per column group of the block plan (bits lo..lo+used),
+            # so yosys tiles each group into the same DP16KD shape the
+            # primitive build uses (for example 2048x9 blocks for a 9-bit
+            # group) instead of falling back to x1 columns for the whole
+            # width. Splitting by columns does not change behaviour.
+            for lo, used, _tw in self.plan:
+                mem = Memory(shape=used, depth=self.depth, init=[])
+                m.submodules[f"mem{lo}"] = mem
+                r = mem.read_port()
+                w = mem.write_port(granularity=1 if self.bit_mask else None)
+                if self.bit_mask:
+                    en = Mux(self.wr.en, self.wr.mask[lo:lo + used], 0)
+                else:
+                    en = self.wr.en
+                m.d.comb += [
+                    r.addr.eq(self.rd.addr),
+                    self.rd.data[lo:lo + used].eq(r.data),
+                    w.addr.eq(self.wr.addr),
+                    w.data.eq(self.wr.data[lo:lo + used]),
+                    w.en.eq(en),
+                ]
             return m
 
         width, abits = self.width, len(self.rd.addr)
@@ -391,11 +403,13 @@ class Solver(Elaboratable):
     max_clauses = 1 << 14  # 16384
     max_lits = (1 << 16) - 1  # 65535
 
-    # True: every memory is built from ECP5 DP16KD instances (the competition
-    # build; no memory initialization ends up in the Verilog). False: plain
-    # amaranth.lib.memory.Memory, for the Amaranth simulator (tests/conftest.py
-    # sets this) and for comparison runs. Both behave identically.
-    bram_primitives = True
+    # False (the competition build): plain amaranth.lib.memory.Memory, one per
+    # block-plan column group; tools/gen_verilog.py deletes their zero
+    # initialisers and yosys infers DP16KD. True: explicit ECP5 DP16KD
+    # instances (kept for comparison runs; the platform's export runs
+    # `hierarchy -check` without the ECP5 cell library, so it rejects them).
+    # Both behave identically, cycle for cycle.
+    bram_primitives = False
 
     def __init__(self, sdepth=SDEPTH, reduce_first=REDUCE_FIRST, reduce_inc=REDUCE_INC,
                  restart_log2=RESTART_UNIT_LOG2):

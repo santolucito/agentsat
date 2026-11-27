@@ -8,7 +8,10 @@ declared capacity. Needs `yosys` on PATH (for example from oss-cad-suite).
 By default the memories are DP16KD instances, as in the competition build;
 compile solver.v together with sim/dp16kd_sim.v (a behavioural model of the
 DP16KD). With --memory the solver is exported with its Memory build
-(Solver.bram_primitives = False) instead, which needs no model.
+(Solver.bram_primitives = False) instead, which needs no model. As in
+tools/gen_verilog.py (the competition build), the memory initialisers are
+deleted, so memories start undefined; run the binary with
++verilator+rand+reset+2 to start them with random contents.
 """
 
 import os
@@ -39,7 +42,8 @@ def main():
         f.write(rtlil.convert(s, name="solver", ports=ports))
     subprocess.run(
         ["yosys", "-q", "-p",
-         f"read_rtlil {il}; proc; flatten; opt_clean; memory_collect; "
+         f"read_rtlil {il}; {'delete t:$meminit_v2; ' if memory else ''}"
+         f"proc; flatten; opt_clean; memory_collect; "
          f"write_verilog -noattr {os.path.join(out, 'solver.v')}"],
         check=True,
     )
