@@ -14,8 +14,9 @@ A conflict-driven clause-learning SAT solver for the Lattice ECP5-85F, built fro
   learned clauses share one pool of 81,920 words; an instance whose heads and clauses leave
   fewer than 2 x variables + 16 words for learning is REJECTED after START (spec 3.9). All 70
   public instances fit.
-- **Clock:** 50 MHz. An out-of-context nextpnr run reaches about 53 MHz. It uses 178 DP16KD
-  (of the 183 available), about 6.9k LUTs and 2.2k FFs.
+- **Clock:** 50 MHz. Out-of-context nextpnr runs reach 53-56 MHz. It uses 178 DP16KD (of the
+  183 available), instantiated directly so the Verilog export carries no memory initialization
+  (1.2 MB; yosys `synth_ecp5` takes about 10 s), about 7.0k LUTs and 2.1k FFs.
 - **Tests:** `pip install amaranth==0.5.8 pytest && pytest` (python-sat is used as the reference
   for the larger instances when installed). Random CNFs are checked against a reference through
   the full Wishbone shell, along with watched-literal edge cases, CDCL cases (learned units,
@@ -97,3 +98,6 @@ If your entry was built with AI assistance, you may also submit a methods paper 
 `python sim/run_bench.py --cnf-dir DIR --answers manifest.csv --max-cycles N` exports the solver to
 Verilog, builds a Verilator model, and runs each CNF with a cycle cap. It checks every SAT model and,
 with the public manifest, every answer against the known result. It needs yosys and verilator on PATH.
+It simulates the competition build (DP16KD instances) with the behavioural model `sim/dp16kd_sim.v`,
+which poisons the read data of a same-word read/write collision; `--memory` builds the Memory
+version instead.

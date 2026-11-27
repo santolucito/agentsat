@@ -1,6 +1,7 @@
 // Verilator testbench: drives the Solver interface the way design.py does.
 //
-// Usage: Vsolver FILE.cnf MAX_CYCLES [FILE2.cnf ...]
+// Usage: Vsolver FILE.cnf MAX_CYCLES [FILE2.cnf ...] [+plusargs]
+// (plusargs, for example +dp16kd_collide=N, go to the Verilog model)
 // For each CNF in turn: abort, load, start, run up to MAX_CYCLES, read the
 // model and check it against the clauses. Several files in one process also
 // check that ABORT isolates instances. Prints one JSON line per instance:
@@ -71,7 +72,9 @@ struct Sim {
   std::unique_ptr<VerilatedContext> ctx;
   std::unique_ptr<Vsolver> top;
   uint64_t cycles = 0;
-  Sim() : ctx(new VerilatedContext), top(new Vsolver(ctx.get())) {
+  Sim(int argc, char **argv) : ctx(new VerilatedContext) {
+    ctx->commandArgs(argc, argv);
+    top.reset(new Vsolver(ctx.get()));
     top->clk = 0;
     top->rst = 1;
     top->eval();
@@ -160,13 +163,17 @@ static void run_one(Sim &s, const char *path, uint64_t max_cycles) {
 }
 
 int main(int argc, char **argv) {
-  if (argc < 3) {
-    fprintf(stderr, "usage: %s FILE.cnf MAX_CYCLES [FILE2.cnf ...]\n", argv[0]);
+  std::vector<const char *> pos;
+  for (int i = 1; i < argc; i++)
+    if (argv[i][0] != '+') pos.push_back(argv[i]);
+  if (pos.size() < 2) {
+    fprintf(stderr, "usage: %s FILE.cnf MAX_CYCLES [FILE2.cnf ...] [+plusargs]\n", argv[0]);
     return 2;
   }
-  uint64_t max_cycles = strtoull(argv[2], nullptr, 10);
-  Sim s;
-  run_one(s, argv[1], max_cycles);
-  for (int i = 3; i < argc; i++) run_one(s, argv[i], max_cycles);
+  uint64_t max_cycles = strtoull(pos[1], nullptr, 10);
+  Sim s(argc, argv);
+  run_one(s, pos[0], max_cycles);
+  for (size_t i = 2; i < pos.size(); i++) run_one(s, pos[i], max_cycles);
+  s.top->final();
   return 0;
 }

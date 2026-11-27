@@ -104,10 +104,17 @@ Memories (one read and one write port each, block RAM)
     heap   16384 x 14  decision heap: variable at each position
     hpos   16384 x 15  [13:0] heap position of each variable, [14] in heap
     act    16384 x 16  activity
-The per-variable memories wider than one bit are built from 2048 x 9 block
-RAMs (8 per 9 bits) plus 16384 x 1 ones for the remaining bits.
-Block RAMs: store 90, asg 2, seen 1, lr 28, trail 15, heap 13, hpos 14,
-act 15 = 178 DP16KD (of 183).
+Each is a `Bram`: explicit ECP5 DP16KD instances (Solver.bram_primitives,
+the default), so the exported Verilog holds no memory initialization at all
+(an amaranth Memory always gets a full zero init, one line per word, which
+yosys elaborates very slowly). The store is 16384 x 1 blocks (per-bit write
+enables), 5 banks per bit. The per-variable memories wider than one bit are
+built from 2048 x 9 blocks (8 per 9 bits) plus 16384 x 1 ones for the
+remaining bits. Block RAMs: store 90, asg 2, seen 1, lr 28, trail 15,
+heap 13, hpos 14, act 15 = 178 DP16KD (of 183). A Bram behaves exactly like a
+non-transparent Memory read port (old data on a same-cycle write); see its
+docstring for how. With bram_primitives = False every Bram is a Memory,
+which the Amaranth simulator (tests) can run.
 
 Capacity
 --------
@@ -131,7 +138,8 @@ same cycle (it is registered first; reads past the end of a clause are issued
 speculatively rather than steered by the last flag), the data of the packed
 per-variable memories is registered before it steers control, and only the
 small 1-bit memories (asg, seen) take an address straight from other read
-data. Out of context nextpnr reaches about 53 MHz; the design runs at 50 MHz.
+data. Out of context nextpnr reaches 53-56 MHz (seeds 1-4); the design runs
+at 50 MHz.
 
 Cycle costs (1-cycle read latency; no read in the same cycle as a write that
 could hit the same address):
@@ -162,7 +170,8 @@ INFO: the reason code for REJECTED or a give-up (RESULT 0); after SAT or
 UNSAT it holds the number of conflicts (for logs only).
 """
 
-from amaranth import Array, Cat, Const, Elaboratable, Module, Mux, ResetInserter, Signal, signed
+from amaranth import (Array, Cat, ClockSignal, Const, Elaboratable, Instance, Module, Mux,
+                      ResetInserter, Signal, signed)
 from amaranth.lib.memory import Memory
 
 VAR_BITS = 14  # variable index width: 16384 variables
@@ -208,88 +217,169 @@ class _Port:
             self.en = Signal()
 
 
-class BitSlicedMemory(Elaboratable):
-    """A width x depth memory with one synchronous read port (`rd`, 1-cycle
-    latency, not transparent) and one write port (`wr`), built from 1-bit-wide
-    memories. `wr.mask` selects the bits written (all by default)."""
+# DP16KD aspect ratios: data width -> (depth, low address pins not used as
+# address). Mirrors yosys' ecp5 brams_map.v: the word address goes on
+# AD[13:k]; for x9 AD[2:0] are unused (0); for x18 AD[1:0] are the byte
+# enables and AD[3:2] are unused (0).
+_DP16KD_SHAPES = {1: (16384, 0), 2: (8192, 1), 4: (4096, 2), 9: (2048, 3), 18: (1024, 4)}
 
-    def __init__(self, width, depth):
+
+def _bram_plan(width, depth, bit_mask):
+    """Cheapest way to tile a width x depth memory with DP16KD blocks.
+    Returns a list of (first bit, bits used, block width). A masked memory
+    (per-bit write enables) uses 1-bit-wide blocks only. Ties prefer fewer
+    output-mux inputs (narrower, deeper blocks)."""
+    shapes = [1] if bit_mask else [1, 2, 4, 9, 18]
+    best = {0: (0, 0, [])}  # bits covered -> (blocks, mux inputs, plan)
+    for w in range(1, width + 1):
+        cands = []
+        for tw in shapes:
+            used = min(tw, w)
+            prev = best[w - used]
+            nb = -(-depth // _DP16KD_SHAPES[tw][0])
+            cands.append((prev[0] + nb, prev[1] + nb * used, prev[2] + [(w - used, used, tw)]))
+        best[w] = min(cands, key=lambda c: (c[0], c[1]))
+    return sorted(best[width][2])
+
+
+class Bram(Elaboratable):
+    """A width x depth memory with one synchronous read port (`rd`: addr,
+    data) and one write port (`wr`: addr, data, en; with `bit_mask`, also
+    `mask`, the bits written, all by default).
+
+    The read port is always enabled, has a 1-cycle latency and is not
+    transparent, exactly like an amaranth.lib.memory.Memory read port with
+    the default arguments: `rd.data` is the word at the address presented on
+    the previous clock edge, as it was before a write in that same cycle.
+
+    With `primitives` (the default, see `Solver.bram_primitives`) it is built
+    from ECP5 DP16KD block RAM instances, the way yosys maps such a memory
+    (memory_libmap), but without any memory initialization in the Verilog (a
+    DP16KD is zero after configuration; the solver clears what it needs at
+    START):
+      * port A writes, port B reads (CEB = 1, WEB = 0), both on the sync
+        clock; NOREG (1-cycle latency), WRITEMODE NORMAL, no chip selects;
+      * the write is registered and lands one cycle late. A read in the
+        cycle of the logical write therefore gets the old data. A read of
+        the word being written physically (the cycle after the logical
+        write) is a cross-port collision, whose DOB is undefined on the
+        device; it is replaced by the registered write data (bit by bit
+        with `bit_mask`). So no DOB value from a collision is ever used, and
+        the write side (address, data, enable) starts at flip-flops, which
+        keeps it off the critical paths;
+      * deep memories are split into banks; the bank of a read is decoded
+        from a registered copy of the high address bits;
+      * these registers are reset-less, like a memory, so ABORT (the
+        ResetInserter around the solver) does not drop a write in flight.
+    Without `primitives` it is one Memory, which the Amaranth simulator can
+    run; both behave identically, cycle for cycle."""
+
+    def __init__(self, width, depth, bit_mask=False, primitives=True):
         self.width, self.depth = width, depth
+        self.bit_mask, self.primitives = bit_mask, primitives
         abits = (depth - 1).bit_length()
         self.rd = _Port(abits, width, False)
         self.wr = _Port(abits, width, True)
-        self.wr.mask = Signal(width, init=(1 << width) - 1)
+        if bit_mask:
+            self.wr.mask = Signal(width, init=(1 << width) - 1)
+        self.plan = _bram_plan(width, depth, bit_mask)
+
+    @property
+    def blocks(self):
+        return sum(-(-self.depth // _DP16KD_SHAPES[tw][0]) for _, _, tw in self.plan)
 
     def elaborate(self, platform):
         m = Module()
-        for i in range(self.width):
-            mem = Memory(shape=1, depth=self.depth, init=[])
-            m.submodules[f"bit{i}"] = mem
-            r, w = mem.read_port(), mem.write_port()
+        if not self.primitives:
+            mem = Memory(shape=self.width, depth=self.depth, init=[])
+            m.submodules.mem = mem
+            r = mem.read_port()
+            w = mem.write_port(granularity=1 if self.bit_mask else None)
+            en = Mux(self.wr.en, self.wr.mask, 0) if self.bit_mask else self.wr.en
             m.d.comb += [
                 r.addr.eq(self.rd.addr),
-                self.rd.data[i].eq(r.data),
+                self.rd.data.eq(r.data),
                 w.addr.eq(self.wr.addr),
-                w.data.eq(self.wr.data[i]),
-                w.en.eq(self.wr.en & self.wr.mask[i]),
+                w.data.eq(self.wr.data),
+                w.en.eq(en),
             ]
-        return m
+            return m
 
+        width, abits = self.width, len(self.rd.addr)
+        # Write delayed by one cycle: address, data and per-bit (or whole
+        # word) enables.
+        nbe = width if self.bit_mask else 1
+        wa = Signal(abits, reset_less=True)
+        wd = Signal(width, reset_less=True)
+        wbe = Signal(nbe, reset_less=True)
+        m.d.sync += [
+            wa.eq(self.wr.addr),
+            wd.eq(self.wr.data),
+            wbe.eq(Mux(self.wr.en, self.wr.mask if self.bit_mask else 1, 0)),
+        ]
+        # Forwarding: the read issued this cycle hits the word being written
+        # now (physically); next cycle its data comes from the write register.
+        fwd = Signal(nbe, reset_less=True)  # per enable bit
+        fwd_d = Signal(width, reset_less=True)
+        m.d.sync += [fwd.eq(Mux(self.rd.addr == wa, wbe, 0)), fwd_d.eq(wd)]
+        fwd_bits = fwd if self.bit_mask else fwd.replicate(width)
+        raw = Signal(width)  # data out of the block RAMs
+        m.d.comb += self.rd.data.eq((raw & ~fwd_bits) | (fwd_d & fwd_bits))
 
-class PackedMemory(Elaboratable):
-    """A width x 16384 memory (1 read port, 1 write port, 1-cycle latency, not
-    transparent) built from 2048 x 9 memories (8 rows per 9-bit group, one
-    block RAM each) plus 16384 x 1 memories for the leftover bits. That uses
-    the parity bits: 9 bits cost 8 block RAMs instead of 9."""
-
-    ROW_BITS = 11  # 2048 words per row
-
-    def __init__(self, width, depth=NVAR):
-        assert depth == NVAR
-        self.width, self.depth = width, depth
-        self.rd = _Port(VAR_BITS, width, False)
-        self.wr = _Port(VAR_BITS, width, True)
-
-    def elaborate(self, platform):
-        m = Module()
-        rb = self.ROW_BITS
-        nrows = self.depth >> rb
-        groups = self.width // 9
-        rest = self.width - 9 * groups
-        if rest == 8:  # an 8-bit remainder is cheaper as one more group
-            groups, rest = groups + 1, 0
-        rsel = Signal(VAR_BITS - rb)  # row of the read issued last cycle
-        m.d.sync += rsel.eq(self.rd.addr[rb:])
-        for g in range(groups):
-            lo = 9 * g
-            hi = min(lo + 9, self.width)
+        rsel = {}  # block depth -> bank of the read issued last cycle
+        for lo, used, tw in self.plan:
+            bdepth, k = _DP16KD_SHAPES[tw]
+            bab = bdepth.bit_length() - 1  # address bits inside one block
+            nbanks = -(-self.depth // bdepth)
+            if nbanks > 1 and bdepth not in rsel:
+                rsel[bdepth] = Signal(abits - bab, name=f"rsel{bdepth}", reset_less=True)
+                m.d.sync += rsel[bdepth].eq(self.rd.addr[bab:])
             outs = []
-            for row in range(nrows):
-                mem = Memory(shape=9, depth=1 << rb, init=[])
-                m.submodules[f"g{g}r{row}"] = mem
-                r, w = mem.read_port(), mem.write_port()
-                m.d.comb += [
-                    r.addr.eq(self.rd.addr[:rb]),
-                    w.addr.eq(self.wr.addr[:rb]),
-                    w.data.eq(self.wr.data[lo:hi]),
-                    w.en.eq(self.wr.en & (self.wr.addr[rb:] == row)),
-                ]
-                outs.append(r.data)
-            with m.Switch(rsel):
-                for row in range(nrows):
-                    with m.Case(row):
-                        m.d.comb += self.rd.data[lo:hi].eq(outs[row][: hi - lo])
-        for b in range(9 * groups, self.width):
-            mem = Memory(shape=1, depth=self.depth, init=[])
-            m.submodules[f"b{b}"] = mem
-            r, w = mem.read_port(), mem.write_port()
-            m.d.comb += [
-                r.addr.eq(self.rd.addr),
-                self.rd.data[b].eq(r.data),
-                w.addr.eq(self.wr.addr),
-                w.data.eq(self.wr.data[b]),
-                w.en.eq(self.wr.en),
-            ]
+            for b in range(nbanks):
+                we = wbe[lo] if self.bit_mask else wbe[0]
+                if nbanks > 1:
+                    we = we & (wa[bab:] == b)
+                do = Signal(tw, name=f"do_b{lo}_r{b}")
+                if tw == 18:
+                    low_a, low_b = Const(0b0011, 4), Const(0, 4)  # A: both byte enables
+                else:
+                    low_a = low_b = Const(0, k)
+                ada = Cat(low_a, wa[:bab]) if k else wa[:bab]
+                adb = Cat(low_b, self.rd.addr[:bab]) if k else self.rd.addr[:bab]
+                dia = wd[lo:lo + used]
+                kw = dict(
+                    p_DATA_WIDTH_A=tw, p_DATA_WIDTH_B=tw,
+                    p_REGMODE_A="NOREG", p_REGMODE_B="NOREG",
+                    p_RESETMODE="SYNC", p_ASYNC_RESET_RELEASE="SYNC",
+                    p_CSDECODE_A="0b000", p_CSDECODE_B="0b000",
+                    p_WRITEMODE_A="NORMAL", p_WRITEMODE_B="NORMAL",
+                    p_GSR="AUTO",
+                    i_CLKA=ClockSignal("sync"), i_CLKB=ClockSignal("sync"),
+                    i_CEA=Const(1), i_OCEA=Const(1), i_WEA=we, i_RSTA=Const(0),
+                    i_CEB=Const(1), i_OCEB=Const(1), i_WEB=Const(0), i_RSTB=Const(0),
+                )
+                for c in range(3):
+                    kw[f"i_CSA{c}"] = Const(0)
+                    kw[f"i_CSB{c}"] = Const(0)
+                for a in range(14):  # a shallow memory leaves high pins at 0
+                    kw[f"i_ADA{a}"] = ada[a] if a < len(ada) else Const(0)
+                    kw[f"i_ADB{a}"] = adb[a] if a < len(adb) else Const(0)
+                for d in range(18):
+                    kw[f"i_DIA{d}"] = dia[d] if d < used else Const(0)
+                    kw[f"i_DIB{d}"] = Const(0)
+                for d in range(tw):
+                    kw[f"o_DOB{d}"] = do[d]
+                m.submodules[f"b{lo}_r{b}"] = Instance("DP16KD", **kw)
+                outs.append(do[:used])
+            if nbanks == 1:
+                m.d.comb += raw[lo:lo + used].eq(outs[0])
+            else:
+                # A bank past the end of the memory does not exist (a read
+                # there is out of range); it reads as 0.
+                with m.Switch(rsel[bdepth]):
+                    for b in range(nbanks):
+                        with m.Case(b):
+                            m.d.comb += raw[lo:lo + used].eq(outs[b])
         return m
 
 
@@ -300,6 +390,12 @@ class Solver(Elaboratable):
     max_vars = NVAR  # 16384
     max_clauses = 1 << 14  # 16384
     max_lits = (1 << 16) - 1  # 65535
+
+    # True: every memory is built from ECP5 DP16KD instances (the competition
+    # build; no memory initialization ends up in the Verilog). False: plain
+    # amaranth.lib.memory.Memory, for the Amaranth simulator (tests/conftest.py
+    # sets this) and for comparison runs. Both behave identically.
+    bram_primitives = True
 
     def __init__(self, sdepth=SDEPTH, reduce_first=REDUCE_FIRST, reduce_inc=REDUCE_INC,
                  restart_log2=RESTART_UNIT_LOG2):
@@ -332,20 +428,24 @@ class Solver(Elaboratable):
         m = Module()
 
         # ------------------------------------------------------- memories
-        m.submodules.store = store = BitSlicedMemory(18, self.sdepth)
-        m.submodules.asg_a = asg_a = Memory(shape=1, depth=NVAR, init=[])
-        m.submodules.asg_v = asg_v = Memory(shape=1, depth=NVAR, init=[])
-        m.submodules.seen = seen = Memory(shape=1, depth=NVAR, init=[])
-        m.submodules.lr = lr = PackedMemory(LEV_BITS + SADDR)
-        m.submodules.trail = trail = PackedMemory(16)
-        m.submodules.heap = heap = PackedMemory(VAR_BITS)
-        m.submodules.hpos = hpos = PackedMemory(VAR_BITS + 1)
-        m.submodules.act = act = PackedMemory(ACT_BITS)
+        def bram(width, depth=NVAR, bit_mask=False):
+            return Bram(width, depth, bit_mask=bit_mask, primitives=self.bram_primitives)
+
+        m.submodules.store = store = bram(18, self.sdepth, bit_mask=True)
+        m.submodules.asg_a = asg_a = bram(1)
+        m.submodules.asg_v = asg_v = bram(1)
+        m.submodules.seen = seen = bram(1)
+        m.submodules.lr = lr = bram(LEV_BITS + SADDR)
+        m.submodules.trail = trail = bram(16)
+        m.submodules.heap = heap = bram(VAR_BITS)
+        m.submodules.hpos = hpos = bram(VAR_BITS + 1)
+        m.submodules.act = act = bram(ACT_BITS)
+        self.brams = [store, asg_a, asg_v, seen, lr, trail, heap, hpos, act]
 
         st_r, st_w = store.rd, store.wr
-        aa_r, aa_w = asg_a.read_port(), asg_a.write_port()
-        av_r, av_w = asg_v.read_port(), asg_v.write_port()
-        sn_r, sn_w = seen.read_port(), seen.write_port()
+        aa_r, aa_w = asg_a.rd, asg_a.wr
+        av_r, av_w = asg_v.rd, asg_v.wr
+        sn_r, sn_w = seen.rd, seen.wr
         lr_r, lr_w = lr.rd, lr.wr
         tr_r, tr_w = trail.rd, trail.wr
         hp_r, hp_w = heap.rd, heap.wr

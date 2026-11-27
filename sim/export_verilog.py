@@ -1,9 +1,14 @@
 """Export the Solver (without the Wishbone shell) as Verilog for Verilator.
 
-Usage: python sim/export_verilog.py OUT_DIR
+Usage: python sim/export_verilog.py OUT_DIR [--memory]
 
 Writes OUT_DIR/solver.v (top module `solver`) and OUT_DIR/caps.h with the
 declared capacity. Needs `yosys` on PATH (for example from oss-cad-suite).
+
+By default the memories are DP16KD instances, as in the competition build;
+compile solver.v together with sim/dp16kd_sim.v (a behavioural model of the
+DP16KD). With --memory the solver is exported with its Memory build
+(Solver.bram_primitives = False) instead, which needs no model.
 """
 
 import os
@@ -18,8 +23,11 @@ from solver import Solver  # noqa: E402
 
 
 def main():
-    out = sys.argv[1]
+    args = sys.argv[1:]
+    memory = "--memory" in args
+    out = [a for a in args if a != "--memory"][0]
     os.makedirs(out, exist_ok=True)
+    Solver.bram_primitives = not memory
     s = Solver()
     ports = [
         s.start, s.abort, s.nvars, s.nclauses, s.nlits, s.load_valid, s.load_data,

@@ -3,13 +3,19 @@
 Usage:
   python sim/run_bench.py --cnf-dir DIR [--answers manifest.csv]
                           [--max-cycles 200000000] [--jobs 8] [--build build/sim]
-                          [--out results.json]
+                          [--out results.json] [--memory] [--plusargs +A +B]
 
 Prints a summary: solved, wrong, timeouts, skipped, and a capped PAR-2 in
 cycles (unsolved = 2 * max_cycles). With --answers (the public manifest CSV,
 columns id and result_gbd), a SAT/UNSAT answer that contradicts the known
 result counts as wrong, and so does a SAT model that fails the check.
 Needs yosys and verilator on PATH (for example from oss-cad-suite).
+
+By default it builds the competition build, whose memories are DP16KD
+instances, with the behavioural model sim/dp16kd_sim.v; --memory builds the
+Memory version instead (Solver.bram_primitives = False). --plusargs are passed
+to the model (for example +dp16kd_collide=0..3 and +dp16kd_report, see
+sim/dp16kd_sim.v).
 """
 
 import argparse
@@ -24,23 +30,25 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
 
-def build(build_dir):
+def build(build_dir, memory=False):
     os.makedirs(build_dir, exist_ok=True)
-    subprocess.run([sys.executable, os.path.join(HERE, "export_verilog.py"), build_dir], check=True)
+    subprocess.run([sys.executable, os.path.join(HERE, "export_verilog.py"), build_dir]
+                   + (["--memory"] if memory else []), check=True)
+    model = [] if memory else [os.path.join(HERE, "dp16kd_sim.v")]
     subprocess.run(
         ["verilator", "--cc", "--exe", "--build", "-O3", "-Wno-fatal", "-Wno-lint", "-Wno-style",
          "--x-assign", "fast", "--x-initial", "unique", "-j", "8",
          "-CFLAGS", "-O2", "-CFLAGS", f"-I{os.path.abspath(build_dir)}",
          "--top-module", "solver", "--Mdir", os.path.join(build_dir, "obj"),
-         os.path.join(build_dir, "solver.v"), os.path.join(HERE, "tb.cpp")],
+         os.path.join(build_dir, "solver.v")] + model + [os.path.join(HERE, "tb.cpp")],
         check=True, stdout=subprocess.DEVNULL,
     )
     return os.path.join(build_dir, "obj", "Vsolver")
 
 
-def run(binary, path, max_cycles, timeout_s):
+def run(binary, path, max_cycles, timeout_s, plusargs=()):
     try:
-        p = subprocess.run([binary, path, str(max_cycles)], capture_output=True, text=True,
+        p = subprocess.run([binary, path, str(max_cycles), *plusargs], capture_output=True, text=True,
                            timeout=timeout_s)
         return json.loads(p.stdout.strip().splitlines()[-1])
     except subprocess.TimeoutExpired:
@@ -59,9 +67,12 @@ def main():
     ap.add_argument("--out")
     ap.add_argument("--timeout-s", type=int, default=1800)
     ap.add_argument("--only", nargs="*", help="instance ids to run (default: all)")
+    ap.add_argument("--memory", action="store_true",
+                    help="build the Memory version instead of the DP16KD one")
+    ap.add_argument("--plusargs", nargs="*", default=[], help="plusargs for the model")
     a = ap.parse_args()
 
-    binary = build(a.build)
+    binary = build(a.build, memory=a.memory)
     files = sorted(f for f in os.listdir(a.cnf_dir) if f.endswith(".cnf"))
     if a.only:
         files = [f for f in files if f[:-4] in set(a.only)]
@@ -72,7 +83,8 @@ def main():
 
     results = []
     with cf.ThreadPoolExecutor(a.jobs) as ex:
-        futs = {ex.submit(run, binary, os.path.join(a.cnf_dir, f), a.max_cycles, a.timeout_s): f
+        futs = {ex.submit(run, binary, os.path.join(a.cnf_dir, f), a.max_cycles, a.timeout_s,
+                          a.plusargs): f
                 for f in files}
         for fut in cf.as_completed(futs):
             r = fut.result()
