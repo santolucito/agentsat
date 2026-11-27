@@ -2,9 +2,9 @@
 yaml_version: 1
 
 project:
-  title: "Watched-literal DPLL"
+  title: "CDCL with watched literals"
   author: "Mark Santolucito"
-  description: "DPLL with chronological backtracking and two-watched-literal unit propagation over block RAM."
+  description: "CDCL: two-watched-literal propagation, first-UIP learning with minimization, backjumping, heap-based EVSIDS, Luby restarts and clause-database reduction, all in block RAM."
   language: amaranth          # amaranth | verilog
   clock_hz: 50000000          # your design clock, in Hz
 

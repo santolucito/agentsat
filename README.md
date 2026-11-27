@@ -1,24 +1,26 @@
-# Watched-literal DPLL: an AgentSAT entry
+# CDCL with watched literals: an AgentSAT entry
 
-A correct SAT solver for the Lattice ECP5-85F, built from the
+A conflict-driven clause-learning SAT solver for the Lattice ECP5-85F, built from the
 [AgentSAT entry template](https://github.com/ManhattanReasoning/agentsat-template).
 
-- **Algorithm:** DPLL with chronological backtracking and MiniSat-style two-watched-literal
-  unit propagation. The watch lists are linked lists threaded through the clause headers in
-  block RAM, and the trail doubles as the propagation queue. Decisions take the lowest
-  unassigned variable (through a monotone pointer) with a saved phase, false at first. See the
-  notes at the top of `solver.py`.
-- **Capacity:** 16,384 variables, 16,384 clauses, 65,535 literals. Any instance within all
-  three limits fits the clause store (1 + 2 x clauses + literals <= 98,304 words).
-- **Clock:** 50 MHz. An out-of-context nextpnr run reaches about 58 MHz. It uses 163 DP16KD
-  (of the 183 available), about 2.8k LUTs and 900 FFs. Variables that appear in no clause are fixed to
-  false and never decided.
-- **Tests:** `pip install amaranth==0.5.8 pytest && pytest`. Random CNFs are checked against
-  brute force through the full Wishbone shell, along with watched-literal edge cases
-  (duplicate literals, tautologies, units, width-200 clauses, implication chains,
-  pigeonhole) and abort and re-solve.
-
-DPLL without clause learning is still weak on hard instances.
+- **Algorithm:** CDCL, MiniSat style. Two-watched-literal unit propagation over watch lists
+  threaded through the clause headers in block RAM; first-UIP conflict analysis with basic
+  (non-recursive) minimization; learned clauses stored in a shared clause pool; non-chronological
+  backjumping; EVSIDS decisions from a binary heap in block RAM, with phase saving; Luby
+  restarts (unit 128); clause-database reduction at restarts that keeps glue clauses (LBD <= 2)
+  and recently used ones, then rebuilds the watch lists. Variables that appear in no clause are
+  fixed to false and never decided. See the notes at the top of `solver.py`.
+- **Capacity:** declared 16,384 variables, 16,384 clauses, 65,535 literals. Heads, clauses and
+  learned clauses share one pool of 81,920 words; an instance whose heads and clauses leave
+  fewer than 2 x variables + 16 words for learning is REJECTED after START (spec 3.9). All 70
+  public instances fit.
+- **Clock:** 50 MHz. An out-of-context nextpnr run reaches about 53 MHz. It uses 178 DP16KD
+  (of the 183 available), about 6.9k LUTs and 2.2k FFs.
+- **Tests:** `pip install amaranth==0.5.8 pytest && pytest` (python-sat is used as the reference
+  for the larger instances when installed). Random CNFs are checked against a reference through
+  the full Wishbone shell, along with watched-literal edge cases, CDCL cases (learned units,
+  backjumps, conflicts at level 0, pigeonhole, forced restarts and reductions in a tiny clause
+  store) and abort at many points followed by re-solves.
 
 ---
 

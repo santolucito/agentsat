@@ -154,8 +154,8 @@ static void run_one(Sim &s, const char *path, uint64_t max_cycles) {
     }
     mok = ok ? "true" : "false";
   }
-  printf("{\"file\":\"%s\",\"status\":\"%s\",\"cycles\":%llu,\"model_ok\":%s}\n", path, status,
-         (unsigned long long)cyc, mok);
+  printf("{\"file\":\"%s\",\"status\":\"%s\",\"cycles\":%llu,\"model_ok\":%s,\"info\":%u}\n",
+         path, status, (unsigned long long)cyc, mok, (unsigned)t->info);
   fflush(stdout);
 }
 

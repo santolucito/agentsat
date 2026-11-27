@@ -66,7 +66,16 @@ def dpll(clauses):
 
 
 def reference(nvars, clauses):
-    return brute_force(nvars, clauses) if nvars <= 12 else dpll(clauses)
+    if nvars <= 12:
+        return brute_force(nvars, clauses)
+    try:  # pysat (python-sat) when installed: fast on the larger instances
+        from pysat.solvers import Solver as PySat
+    except ImportError:
+        return dpll(clauses)
+    if any(len(c) == 0 for c in clauses):
+        return UNSAT
+    with PySat(name="m22", bootstrap_with=[list(c) for c in clauses]) as s:
+        return SAT if s.solve() else UNSAT
 
 
 def words_of(clauses):
@@ -488,3 +497,231 @@ def test_size_rewrite_resets_load_position():
         assert s32(await wb(ctx, dut, WINDOW)) == 1
 
     run_sim(dut, body)
+
+
+# ---------------------------------------------------------------------------
+# CDCL: learning, backjumping, restarts and clause-database reduction.
+#
+# These drive the Solver directly (without the Wishbone shell) so that the
+# FSM can be watched: the tests check that the events they are about really
+# happen, not only that the answers are right.
+
+from amaranth.sim import Simulator  # noqa: E402
+
+
+def drive_solver(dut, instances, max_cycles=3_000_000, abort_after=None):
+    """Solve each (nvars, clauses) in turn on one Solver, the way the shell
+    does (abort, sizes, stream, start). Returns per instance (result, model,
+    counts of FSM states entered). abort_after[i], if not None, aborts
+    instance i after that many cycles and records result None."""
+    out = []
+
+    async def tb(ctx):
+        fsm = dut.dbg["fsm"]
+        names = {v: k for k, v in fsm.encoding.items()}
+        for idx, (nvars, clauses) in enumerate(instances):
+            ctx.set(dut.abort, 1)
+            await ctx.tick()
+            await ctx.tick()
+            while not ctx.get(dut.idle):
+                await ctx.tick()
+            ctx.set(dut.abort, 0)
+            await ctx.tick()
+            ctx.set(dut.nvars, nvars)
+            ctx.set(dut.nclauses, len(clauses))
+            ctx.set(dut.nlits, sum(len(c) for c in clauses))
+            await ctx.tick()
+            for c in clauses:
+                for x in list(c) + [0]:
+                    ctx.set(dut.load_data, x)
+                    ctx.set(dut.load_valid, 1)
+                    await ctx.tick()
+            ctx.set(dut.load_valid, 0)
+            await ctx.tick()
+            ctx.set(dut.start, 1)
+            await ctx.tick()
+            ctx.set(dut.start, 0)
+            counts = {}
+            last = None
+            limit = max_cycles
+            if abort_after is not None and abort_after[idx] is not None:
+                limit = abort_after[idx]
+            res = None
+            for _ in range(limit):
+                st = names[ctx.get(fsm.state)]
+                if st != last:
+                    counts[st] = counts.get(st, 0) + 1
+                    last = st
+                if ctx.get(dut.done) or ctx.get(dut.rejected):
+                    break
+                await ctx.tick()
+            model = None
+            if ctx.get(dut.rejected):
+                res = "rejected"
+            elif ctx.get(dut.done):
+                res = ctx.get(dut.result)
+                if res == SAT:
+                    model = []
+                    for v in range(nvars):
+                        ctx.set(dut.model_addr, v)
+                        await ctx.tick()
+                        model.append((v + 1) if ctx.get(dut.model_val) else -(v + 1))
+            elif abort_after is None or abort_after[idx] is None:
+                raise AssertionError("solver did not finish")
+            out.append((res, model, counts))
+
+    sim = Simulator(dut)
+    sim.add_clock(1e-6)
+    sim.add_testbench(tb)
+    sim.run()
+    return out
+
+
+def test_learned_unit_then_conflict_at_level_0():
+    # x1 is forced by learning: deciding x1 false (the first phase) leads to a
+    # conflict whose learned clause is the unit (x1); with x1 true, x3 and -x3
+    # conflict at level 0: UNSAT.
+    cls = [[1, 2], [1, -2], [-1, 3], [-1, -3]]
+    # A satisfiable variant: the learned unit x1 is the answer.
+    cls2 = [[1, 2, 4], [1, -2, 4], [1, 2, -4], [1, -2, -4], [-1, 3]]
+    dut = Solver()
+    (r1, m1, c1), (r2, m2, c2) = drive_solver(dut, [(3, cls), (4, cls2)])
+    check(3, cls, r1, m1)
+    check(4, cls2, r2, m2)
+    assert c2.get("AU0", 0) >= 1  # a clause was learned
+    assert m2[0] == 1
+
+
+def test_backjump_over_several_levels():
+    # Variables 5..8 are decided first (highest index first) and are
+    # irrelevant; the conflict among 1..4 must jump back over them.
+    core = [[1, 2], [1, -2, 3], [-3, -1], [-2, 4], [-4, -1], [1, 3, 4]]
+    pad = [[5, 6, 7, 8], [-5, -6], [-7, -8]]
+    for cls in (core + pad, core + pad + [[-1, -3, 2]]):
+        dut = Solver()
+        ((res, model, counts),) = drive_solver(dut, [(8, cls)])
+        check(8, cls, res, model)
+
+
+@pytest.mark.parametrize("holes", [3, 4, 5])
+def test_pigeonhole_unsat_with_learning(holes):
+    nv, cls = pigeonhole(holes)
+    dut = Solver()
+    ((res, model, counts),) = drive_solver(dut, [(nv, cls)], max_cycles=20_000_000)
+    assert res == UNSAT
+    assert counts.get("AU0", 0) > 0  # learned clauses
+    assert counts.get("P0", 0) > 0  # backjumps
+
+
+def test_restarts_and_reductions_happen():
+    # Short intervals: restart every 4 x Luby conflicts, reduce every 20 + 10k.
+    rng = random.Random(7)
+    insts = [pigeonhole(5)]
+    for n in (40, 50):
+        insts.append((n, [[rng.choice([-1, 1]) * v for v in rng.sample(range(1, n + 1), 3)]
+                          for _ in range(int(n * 4.3))]))
+    dut = Solver(reduce_first=20, reduce_inc=10, restart_log2=2)
+    results = drive_solver(dut, insts, max_cycles=20_000_000)
+    for (nv, cls), (res, model, counts) in zip(insts, results):
+        check(nv, cls, res, model)
+    counts = results[0][2]
+    assert counts.get("RS1", 0) >= 3, counts  # restarts
+    assert counts.get("RD0", 0) >= 2, counts  # reductions
+    assert counts.get("RCLR", 0) >= 1  # watch lists rebuilt
+
+
+def test_tiny_store_forces_reductions_and_escalation():
+    # A store just big enough to accept the instances: the learned area fills
+    # up all the time, conflicts are dropped, and compaction escalates to
+    # keeping only glue clauses or nothing. Answers must stay right.
+    def words(nv, cls):
+        return 2 * nv + 1 + sum(2 + len(c) for c in cls)
+
+    rng = random.Random(11)
+    insts = [pigeonhole(4)]
+    for _ in range(3):
+        n = rng.randint(18, 24)
+        insts.append((n, [[rng.choice([-1, 1]) * v for v in rng.sample(range(1, n + 1), 3)]
+                          for _ in range(int(n * 4.4))]))
+    total = {}
+    for nv, cls in insts:
+        dut = Solver(sdepth=words(nv, cls) + 2 * nv + 16 + 16, reduce_first=10**6)
+        ((res, model, counts),) = drive_solver(dut, [(nv, cls)], max_cycles=20_000_000)
+        check(nv, cls, res, model)
+        for k, v in counts.items():
+            total[k] = total.get(k, 0) + v
+    assert total.get("RCLR", 0) >= 3, total  # reductions (watch lists rebuilt)
+    assert total.get("RD0", 0) > total["RCLR"], total  # some compactions escalated
+
+
+def test_store_too_small_to_learn_is_rejected():
+    # The formula fits but leaves fewer than 2 * nvars + 16 free words.
+    dut = Solver(sdepth=1024)
+    cls = [[v, v + 1] for v in range(1, 300)]
+    ((res, model, counts),) = drive_solver(dut, [(300, cls)])
+    assert res == "rejected"
+    # Fewer variables: accepted and solved.
+    dut = Solver(sdepth=1024)
+    cls = [[v, -(v + 1)] for v in range(1, 100)] + [[100], [-1, 50]]
+    ((res, model, counts),) = drive_solver(dut, [(100, cls)])
+    check(100, cls, res, model)
+
+
+def test_small_store_through_the_shell():
+    # Many random instances with frequent reductions, through the full shell,
+    # in one simulation (ABORT isolation between instances).
+    rng = random.Random(3)
+    instances = []
+    for _ in range(25):
+        n = rng.randint(5, 25)
+        instances.append((n, random_cnf(rng, n, rng.randint(n, int(n * 5)), 4)))
+    dut = Entry(solver_cls=lambda: Solver(sdepth=1500, reduce_first=8, reduce_inc=4,
+                                          restart_log2=1))
+
+    async def body(ctx):
+        for nvars, clauses in instances:
+            res, model = await solve(ctx, dut, nvars, clauses, max_polls=400000)
+            if res == "rejected":
+                continue
+            check(nvars, clauses, res, model)
+
+    run_sim(dut, body)
+
+
+def test_abort_at_many_points_then_resolve():
+    # Abort the same hard instance after different numbers of cycles (during
+    # start-up, propagation, analysis, backjumps, restarts, reductions), and
+    # solve a different instance after each abort.
+    nv, php = pigeonhole(5)
+    rng = random.Random(5)
+    small = []
+    for _ in range(6):
+        n = rng.randint(8, 14)
+        small.append((n, [[rng.choice([-1, 1]) * v for v in rng.sample(range(1, n + 1), 3)]
+                          for _ in range(int(n * 4.3))]))
+    seq, aborts = [], []
+    for k, cut in enumerate([50, 300, 2000, 9000, 30000, 120000]):
+        seq += [(nv, php), small[k]]
+        aborts += [cut, None]
+    dut = Solver(reduce_first=15, reduce_inc=5, restart_log2=1)
+    results = drive_solver(dut, seq, max_cycles=5_000_000, abort_after=aborts)
+    for (n, cls), cut, (res, model, counts) in zip(seq, aborts, results):
+        if cut is None:
+            check(n, cls, res, model)
+    # And the hard one from scratch afterwards.
+    ((res, model, counts),) = drive_solver(dut, [(nv, php)], max_cycles=20_000_000)
+    assert res == UNSAT
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_threshold_3sat_larger(seed):
+    # 40-70 variable random 3-SAT near the threshold: needs real learning.
+    rng = random.Random(300 + seed)
+    insts = []
+    for _ in range(3):
+        n = rng.randint(40, 70)
+        insts.append((n, [[rng.choice([-1, 1]) * v for v in rng.sample(range(1, n + 1), 3)]
+                          for _ in range(int(n * 4.26))]))
+    dut = Solver()
+    for (nv, cls), (res, model, counts) in zip(insts, drive_solver(dut, insts, 30_000_000)):
+        check(nv, cls, res, model)
