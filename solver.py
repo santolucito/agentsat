@@ -191,6 +191,7 @@ MAX_LEVEL = (1 << LEV_BITS) - 1
 # Literal word fields.
 LAST = 15
 RMV = 16  # learned literal flagged for removal (only during minimization)
+B0BIN = 17  # position 0 of a binary clause (set when the clause is linked)
 # Meta word fields (learned clauses).
 M_GLUE = 0
 M_USED = 1
@@ -449,19 +450,18 @@ class Solver(Elaboratable):
             return Bram(width, depth, bit_mask=bit_mask, primitives=self.bram_primitives)
 
         m.submodules.store = store = bram(18, self.sdepth, bit_mask=True)
-        m.submodules.asg_a = asg_a = bram(1)
-        m.submodules.asg_v = asg_v = bram(1)
+        m.submodules.asg = asg = bram(2)
+        m.submodules.asgs = asgs = bram(2)
         m.submodules.seen = seen = bram(1)
         m.submodules.lr = lr = bram(LEV_BITS + SADDR)
         m.submodules.trail = trail = bram(16)
         m.submodules.heap = heap = bram(VAR_BITS)
         m.submodules.hpos = hpos = bram(VAR_BITS + 1)
         m.submodules.act = act = bram(ACT_BITS)
-        self.brams = [store, asg_a, asg_v, seen, lr, trail, heap, hpos, act]
+        self.brams = [store, asg, asgs, seen, lr, trail, heap, hpos, act]
 
         st_r, st_w = store.rd, store.wr
-        aa_r, aa_w = asg_a.rd, asg_a.wr
-        av_r, av_w = asg_v.rd, asg_v.wr
+        as_r, as_w = asg.rd, asg.wr
         sn_r, sn_w = seen.rd, seen.wr
         lr_r, lr_w = lr.rd, lr.wr
         tr_r, tr_w = trail.rd, trail.wr
@@ -469,13 +469,21 @@ class Solver(Elaboratable):
         ps_r, ps_w = hpos.rd, hpos.wr
         ac_r, ac_w = act.rd, act.wr
 
-        for w in (st_w, aa_w, av_w, sn_w, lr_w, tr_w, hp_w, ps_w, ac_w):
+        for w in (st_w, as_w, sn_w, lr_w, tr_w, hp_w, ps_w, ac_w):
             m.d.comb += w.en.eq(0)
 
-        # Read address of both assignment memories (always the same variable).
         as_addr = Signal(VAR_BITS)
-        m.d.comb += [aa_r.addr.eq(as_addr), av_r.addr.eq(as_addr)]
-        as_data = Cat(av_r.data, aa_r.data)  # [0] value, [1] assigned
+        m.d.comb += as_r.addr.eq(as_addr)
+        as_data = as_r.data  # [0] value, [1] assigned
+        # asgs is a copy of asg (every write goes to both) whose read address
+        # is always the variable of the word the store read returns, with no
+        # mux in between, so that the replacement scan can look up a literal
+        # in the cycle its word arrives without a long path.
+        m.d.comb += [
+            asgs.wr.addr.eq(as_w.addr), asgs.wr.data.eq(as_w.data), asgs.wr.en.eq(as_w.en),
+            asgs.rd.addr.eq(st_r.data[1:CODE_BITS]),
+        ]
+        ass_data = asgs.rd.data
 
         def st_read(addr):
             m.d.comb += st_r.addr.eq(addr)
@@ -489,13 +497,11 @@ class Solver(Elaboratable):
             m.d.comb += as_addr.eq(var)
 
         def as_assign(var, value):
-            m.d.comb += [
-                aa_w.addr.eq(var), aa_w.data.eq(1), aa_w.en.eq(1),
-                av_w.addr.eq(var), av_w.data.eq(value), av_w.en.eq(1),
-            ]
+            m.d.comb += [as_w.addr.eq(var), as_w.data.eq(Cat(value, Const(1, 1))), as_w.en.eq(1)]
 
-        def as_unassign(var):  # the value stays: saved phase
-            m.d.comb += [aa_w.addr.eq(var), aa_w.data.eq(0), aa_w.en.eq(1)]
+        def as_unassign(var, value):
+            # value: the value it had, which stays as the saved phase
+            m.d.comb += [as_w.addr.eq(var), as_w.data.eq(Cat(value, Const(0, 1))), as_w.en.eq(1)]
 
         def sn_read(var):
             m.d.comb += sn_r.addr.eq(var)
@@ -646,16 +652,19 @@ class Solver(Elaboratable):
         nxt2 = Signal(18)  # and the one after that (speculative)
         prev = Signal(18)  # the kept entry before it ...
         prev_head = Signal()  # ... or the list head
-        other = Signal(16)  # the other watched literal of cur
+        other = Signal(18)  # the other watched literal of cur
         oth_asg = Signal(2)  # its assignment
         c1 = Signal(16)  # replacement scan: newest word read ...
         c1_addr = Signal(SADDR)
         c1_valid = Signal()
         cand = Signal(16)  # ... and the candidate being judged
         cand_addr = Signal(SADDR)
-        cand_valid = Signal()
         waddr = Signal(SADDR + 1)
         oldhead = Signal(18)
+        pf_oth = Signal(18)  # prefetched: the other watch of nxt ...
+        pf_n3 = Signal(18)  # ... and the entry after nxt2
+        mvcur = Signal(18)  # the entry being moved (pushed in WRF)
+        ldirty = Signal()  # the link of prev (or the head) still points at a moved entry
 
         cur_h, cur_s = cur[:SADDR], cur[SADDR]
         nxt_h, nxt_s = nxt[:SADDR], nxt[SADDR]
@@ -748,6 +757,24 @@ class Solver(Elaboratable):
                 m.next = "Q0"  # end of the list
             with m.Else():
                 m.next = "WB"
+
+        def fix_link(p):
+            """Point the link of prev (or fl's head) at p."""
+            with m.If(prev_head):
+                st_write(fl, p)
+            with m.Else():
+                st_write(prev_h + prev_s, p)
+
+        def resume(state):
+            """Go on to nxt with the data prefetched before cur's watch was
+            judged (WY, WE). Only asg, trail and lr were written since, plus
+            words of cur's clause, cur's header and list heads: never nxt's
+            or nxt2's words, so the prefetched words are still current."""
+            m.d.sync += [cur.eq(nxt), nxt.eq(nxt2), nxt2.eq(pf_n3), other.eq(pf_oth)]
+            with m.If(nxt_h == 0):
+                m.next = "Q0"
+            with m.Else():
+                m.next = state
 
         def finish(result):
             m.d.sync += res.eq(result)
@@ -874,7 +901,7 @@ class Solver(Elaboratable):
                         with m.If(d[LAST]):
                             m.d.sync += m_skip.eq(2)
                 with m.If(mw_valid):
-                    as_unassign(mw[1:CODE_BITS])
+                    as_unassign(mw[1:CODE_BITS], 0)  # assigned false in CLEAR
                 with m.If((ma >= oend) & ~m_rv & ~mw_valid):
                     m.d.sync += [qv.eq(0), q_rv.eq(0), hn.eq(0)]
                     m.next = "QI"
@@ -884,7 +911,7 @@ class Solver(Elaboratable):
             with m.State("QI"):
                 as_read(qv)
                 m.d.sync += [qv.eq(qv + 1), q_rv.eq(qv < nv), q_var.eq(qv)]
-                with m.If(q_rv & ~aa_r.data):
+                with m.If(q_rv & ~as_data[1]):
                     hp_write(hn, q_var)
                     ps_write(q_var, hn, 1)
                     m.d.sync += hn.eq(hn + 1)
@@ -957,6 +984,8 @@ class Solver(Elaboratable):
             # to its literal code.
             with m.State("LK0"):
                 st_read(lit0w[:CODE_BITS])
+                # Position 0: flag a binary clause (position 1 is last).
+                st_write(h + 2, Cat(lit0w[:CODE_BITS], Const(0, 2), lit1w[LAST]))
                 m.next = "LK1"
 
             with m.State("LK1"):
@@ -994,6 +1023,19 @@ class Solver(Elaboratable):
                     m.next = "ISK"
 
             # ---------------------------------------------------- propagate
+            # Q0 reads the next trail entry. QF does the same work as Q1 with
+            # an entry read in the cycle before it: the states that go to QF
+            # (WY, F5, Q3, Q4) read trail[qhead] and write no trail entry,
+            # so the read is current.
+            def start_entry():
+                m.d.sync += [
+                    fl.eq(Cat(tr_val, tr_var)),  # the literal made false
+                    qhead.eq(qhead + 1),
+                    prev_head.eq(1),
+                    ldirty.eq(0),
+                ]
+                m.next = "Q2"
+
             with m.State("Q0"):
                 tr_read(qhead)
                 with m.If(qhead == tp):
@@ -1002,29 +1044,49 @@ class Solver(Elaboratable):
                     m.next = "Q1"
 
             with m.State("Q1"):
-                m.d.sync += [
-                    fl.eq(Cat(tr_val, tr_var)),  # the literal made false
-                    qhead.eq(qhead + 1),
-                    prev_head.eq(1),
-                ]
-                m.next = "Q2"
+                start_entry()
+
+            with m.State("QF"):
+                with m.If(qhead == tp):
+                    m.next = "DEC"
+                with m.Else():
+                    start_entry()
 
             with m.State("Q2"):
                 st_read(fl)  # its watch-list head
                 m.next = "Q3"
 
             with m.State("Q3"):
+                tr_read(qhead)
                 m.d.sync += nxt.eq(st_r.data)
-                m.next = "Q4"
+                with m.If(st_r.data[:SADDR] == 0):
+                    m.next = "QF"  # empty list
+                with m.Else():
+                    m.next = "Q4"
 
             with m.State("Q4"):
+                tr_read(qhead)
                 visit(nxt)
 
             # The walk. Visits overlap so that a kept watch costs two cycles
             # (WX, WY): while cur's other watch is being looked up in asg, the
             # store reads for the next two entries are already issued. These
-            # reads are speculative and harmless: nothing is written in
-            # WB..WY, and their data is dropped if cur's watch has to move.
+            # reads are speculative and harmless: their data is dropped if the
+            # list ends. When cur's watch is not kept, the two words already
+            # read for the entries after it (nxt's other watch, nxt2's next
+            # pointer) are kept in pf_oth / pf_n3, and after the imply or the
+            # move the walk resumes at WR / WRF with them (no WB / WC).
+            #
+            # Unlinking is deferred: a moved entry leaves the link of prev (or
+            # the head) pointing at it (ldirty), and that link is rewritten
+            # once, when the next entry that stays on the list is found (WY,
+            # NOREP) or the list ends (F5). Nothing reads fl's list from its
+            # head before then.
+            #
+            # A clause is binary when position 1 has the last flag; for a
+            # watch in slot 1 (other = position 0) bit B0BIN of position 0
+            # says the same (set when the clause is linked, see LK0), so the
+            # walk knows at WY whether a replacement can exist.
             with m.State("WB"):
                 m.d.sync += nxt.eq(st_r.data)
                 st_read(other_addr(cur_h, cur_s))
@@ -1035,19 +1097,34 @@ class Solver(Elaboratable):
                 st_read(nxt_h + nxt_s)
                 m.next = "WX"
 
-            with m.State("WX"):
-                m.d.sync += nxt2.eq(st_r.data)
+            def look_other():
                 as_read(other[1:CODE_BITS])
                 st_read(other_addr(nxt_h, nxt_s))
+                tr_read(qhead)
                 m.next = "WY"
+
+            with m.State("WX"):
+                m.d.sync += nxt2.eq(st_r.data)
+                look_other()
+
+            with m.State("WR"):  # WX after a resume: nxt2 is set already
+                look_other()
+
+            with m.State("WRF"):  # WR, finishing a move: push it on cand's list
+                st_write(cand[:CODE_BITS], mvcur)
+                look_other()
 
             with m.State("WY"):
                 a = as_data
                 st_read(nxt2[:SADDR] + nxt2[SADDR])
-                m.d.sync += oth_asg.eq(a)
+                tr_read(qhead)
+                m.d.sync += [oth_asg.eq(a), pf_oth.eq(st_r.data)]
                 with m.If(a[1] & (a[0] != other[0])):
                     # Other watch is true: keep this watch, go on to nxt.
+                    with m.If(ldirty):
+                        fix_link(cur)
                     m.d.sync += [
+                        ldirty.eq(0),
                         prev.eq(cur),
                         prev_head.eq(0),
                         cur.eq(nxt),
@@ -1055,63 +1132,56 @@ class Solver(Elaboratable):
                         other.eq(st_r.data),
                     ]
                     with m.If(nxt_h == 0):
-                        m.next = "Q0"
+                        m.next = "QF"
                     with m.Else():
                         m.next = "WX"
+                with m.Elif(Mux(cur_s, other[B0BIN], other[LAST])):
+                    m.next = "NB"  # binary: no replacement
                 with m.Else():
                     m.next = "WE"
 
-            # Look for a replacement watch. For slot 0 the other watch is
-            # position 1, so its last flag says whether the clause is binary;
-            # for slot 1, read position 1 to find out.
+            # Look for a replacement watch in positions 2.. (the clause has
+            # at least three literals).
             with m.State("WE"):
-                st_read(Mux(cur_s, cur_h + 3, cur_h + 4))
-                m.d.sync += [waddr.eq(cur_h + 4), c1_valid.eq(0), cand_valid.eq(0)]
-                with m.If(cur_s):
-                    m.next = "WP1"
-                with m.Elif(other[LAST]):
-                    m.next = "NOREP"
-                with m.Else():
-                    m.next = "SRCH"
-
-            with m.State("WP1"):
                 st_read(cur_h + 4)
-                with m.If(st_r.data[LAST]):
-                    m.next = "NOREP"
-                with m.Else():
-                    m.next = "SRCH"
+                m.d.sync += [waddr.eq(cur_h + 4), c1_valid.eq(0), pf_n3.eq(st_r.data)]
+                m.next = "SRCH"
 
             # Scan positions 2.. for a literal that is not false, one per
-            # cycle, in a three-stage pipeline (store word -> asg lookup ->
-            # verdict). Nothing is written.
+            # cycle, in a two-stage pipeline: the store word arrives and its
+            # lookup in asgs is issued at once (asgs takes its address
+            # straight from store read data); the next cycle judges it.
+            # Nothing is written.
             with m.State("SRCH"):
-                a = as_data
-                cand_false = a[1] & (a[0] == cand[0])
-                shift = Signal()
-                as_read(c1[1:CODE_BITS])
+                a = ass_data
+                c_false = a[1] & (a[0] == c1[0])
+                d = st_r.data
+                adv = Signal()
                 st_read(waddr + 1)
-                with m.If(cand_valid):
-                    with m.If(~cand_false & (cand[:CODE_BITS] != other[:CODE_BITS])):
+                with m.If(c1_valid):
+                    with m.If(~c_false & (c1[:CODE_BITS] != other[:CODE_BITS])):
+                        m.d.sync += [cand.eq(c1), cand_addr.eq(c1_addr)]
                         m.next = "F1"
-                    with m.Elif(cand[LAST]):
+                    with m.Elif(c1[LAST]):
                         m.next = "NOREP"
                     with m.Else():
-                        m.d.comb += shift.eq(1)
+                        m.d.comb += adv.eq(1)
                 with m.Else():
-                    m.d.comb += shift.eq(1)
-                with m.If(shift):
+                    m.d.comb += adv.eq(1)
+                with m.If(adv):
                     m.d.sync += [
-                        cand.eq(c1),
-                        cand_addr.eq(c1_addr),
-                        cand_valid.eq(c1_valid),
-                        c1.eq(st_r.data),
+                        c1.eq(d),
                         c1_addr.eq(waddr),
                         c1_valid.eq(1),
                         waddr.eq(waddr + 1),
                     ]
 
             # No replacement: imply the other watch, or conflict.
-            with m.State("NOREP"):
+            def no_replacement():
+                # cur stays on the list either way.
+                with m.If(ldirty):
+                    fix_link(cur)
+                m.d.sync += ldirty.eq(0)
                 with m.If(oth_asg[1]):
                     m.next = "CONFL"  # other watch false: every literal is false
                 with m.Else():
@@ -1120,10 +1190,18 @@ class Solver(Elaboratable):
                     tr_write(tp, v, ~other[0], 0)
                     lr_write(v, dl, cur_h)
                     m.d.sync += [tp.eq(tp + 1), prev.eq(cur), prev_head.eq(0)]
-                    visit(nxt)
+                    resume("WR")
 
-            # Replacement found at cand_addr: move the watch there. Five
-            # store writes, one per cycle; the last overlaps the next visit.
+            with m.State("NOREP"):
+                no_replacement()
+
+            with m.State("NB"):  # from WY: the read issued there arrives now
+                no_replacement()
+                m.d.sync += nxt2.eq(st_r.data)  # (resume would use pf_n3)
+
+            # Replacement found at cand_addr: move the watch there. Four
+            # store writes, one per cycle, the last one (in WRF) overlapping
+            # the next visit; cur is unlinked later (ldirty).
             with m.State("F1"):
                 # The false literal goes where the candidate was, keeping that
                 # position's flags.
@@ -1133,27 +1211,29 @@ class Solver(Elaboratable):
 
             with m.State("F2"):
                 # The watch position gets the candidate (positions 0 and 1 are
-                # never last here: the clause has at least 3 literals).
+                # never last here, and the clause is not binary).
                 st_write(other_addr(cur_h, ~cur_s), Cat(cand[:CODE_BITS], Const(0, 3)))
                 m.d.sync += oldhead.eq(st_r.data)
                 m.next = "F3"
 
             with m.State("F3"):
                 st_write(cur_h + cur_s, oldhead)
-                m.next = "F4"
+                m.d.sync += mvcur.eq(cur)
+                with m.If(nxt_h == 0):
+                    m.next = "F4"
+                with m.Else():
+                    m.d.sync += ldirty.eq(1)
+                    resume("WRF")
 
             with m.State("F4"):
                 st_write(cand[:CODE_BITS], cur)  # push cur on cand's list
                 m.next = "F5"
 
             with m.State("F5"):
-                # Unlink cur from fl's list. The visit reads nxt's header in
-                # this cycle: nxt is neither cur nor prev and not a head.
-                with m.If(prev_head):
-                    st_write(fl, nxt)
-                with m.Else():
-                    st_write(prev_h + prev_s, nxt)
-                visit(nxt)
+                # cur was the last entry: end the list at prev (or the head).
+                fix_link(nxt)
+                tr_read(qhead)
+                m.next = "QF"
 
             # ------------------------------------------------------- decide
             with m.State("DEC"):
@@ -1514,7 +1594,7 @@ class Solver(Elaboratable):
                 m.d.sync += [
                     h.eq(lh),
                     lit0w.eq(Cat(te[VAR_BITS], te[:VAR_BITS])),
-                    lit1w.eq(maxlit),
+                    lit1w.eq(Cat(maxlit, lw - 1 == lh + 3)),  # as written in AU1
                     lret.eq(1),
                     lfree.eq(lw),
                     bjl.eq(maxlev),
@@ -1603,7 +1683,7 @@ class Solver(Elaboratable):
                     m.next = "P1"
 
             with m.State("P1"):
-                as_unassign(tr_var)
+                as_unassign(tr_var, tr_val)
                 m.d.sync += [pe.eq(tr_r.data), tp.eq(tp - 1)]
                 with m.If(tr_dec):
                     m.d.sync += dl.eq(dl - 1)
@@ -1720,7 +1800,7 @@ class Solver(Elaboratable):
                     m.next = "I0"
 
             with m.State("DONE"):
-                m.d.comb += [self.done.eq(1), self.model_val.eq(av_r.data)]
+                m.d.comb += [self.done.eq(1), self.model_val.eq(as_data[0])]
                 as_read(self.model_addr[:VAR_BITS])
 
             with m.State("REJECT"):
