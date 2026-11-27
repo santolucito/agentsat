@@ -507,6 +507,9 @@ class Solver(Elaboratable):
         # One-hot copy of the FSM state (Timing). Every transition goes
         # through goto(), which also sets the next value of fsm_oh, so
         # fsm_oh[state_index[X]] is 1 exactly while the FSM is in state X.
+        # goto(Y) in state X clears X's bit and sets Y's; all other bits are
+        # 0 then and keep their value, so each bit's next value depends only
+        # on the transitions into and out of its own state.
         # yosys keeps Amaranth's FSM binary (it cannot extract it), and
         # decoding its 7 state bits costs two LUT levels before a mux.
         state_index = {"IDLE": 0}
@@ -524,7 +527,7 @@ class Solver(Elaboratable):
 
         def goto(name):
             m.next = name
-            m.d.comb += oh_next.eq(1 << sidx(name))
+            m.d.comb += [oh_next[sidx(cur_state[0])].eq(0), oh_next[sidx(name)].eq(1)]
 
         class State:
             def __init__(self, name):
@@ -702,6 +705,9 @@ class Solver(Elaboratable):
         sc = Signal(VAR_BITS + 1)  # rescale index
         sc_rv = Signal()
         sc_var = Signal(VAR_BITS)
+        sc_d = Signal(ACT_BITS)
+        sc_dv = Signal()
+        sc_var2 = Signal(VAR_BITS)
         qv = Signal(VAR_BITS + 1)  # queue build index
         q_rv = Signal()
         q_var = Signal(VAR_BITS)
@@ -1277,7 +1283,7 @@ class Solver(Elaboratable):
                 with m.If((crst >= rlimit) | (redc >= rlim)):
                     pop_to(0, 1)  # restart (and maybe reduce)
                 with m.Elif(inc_e >= RESCALE_AT):
-                    m.d.sync += [sc.eq(0), sc_rv.eq(0)]
+                    m.d.sync += [sc.eq(0), sc_rv.eq(0), sc_dv.eq(0)]
                     goto("SC")
                 with m.Else():
                     goto("D0")
@@ -1286,12 +1292,14 @@ class Solver(Elaboratable):
             # ones become 0. Monotone, so the heap order stays valid.
             with State("SC"):
                 ac_read(sc)
-                m.d.sync += [sc.eq(sc + 1), sc_rv.eq(sc < nv), sc_var.eq(sc)]
-                with m.If(sc_rv):
-                    e = ac_r.data[ACT_MANT:]
-                    ac_write(sc_var, Mux(e > RESCALE_BY,
-                                         Cat(ac_r.data[:ACT_MANT], e - RESCALE_BY), 0))
-                with m.If((sc >= nv) & ~sc_rv):
+                m.d.sync += [sc.eq(sc + 1), sc_rv.eq(sc < nv), sc_var.eq(sc),
+                             sc_d.eq(ac_r.data), sc_dv.eq(sc_rv), sc_var2.eq(sc_var)]
+                # The activity read two cycles ago (registered: Timing).
+                with m.If(sc_dv):
+                    e = sc_d[ACT_MANT:]
+                    ac_write(sc_var2, Mux(e > RESCALE_BY,
+                                          Cat(sc_d[:ACT_MANT], e - RESCALE_BY), 0))
+                with m.If((sc >= nv) & ~sc_rv & ~sc_dv):
                     m.d.sync += inc_e.eq(inc_e - RESCALE_BY)
                     goto("D0")
 
