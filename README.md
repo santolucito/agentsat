@@ -11,7 +11,8 @@ A correct SAT solver for the Lattice ECP5-85F, built from the
 - **Capacity:** 16,384 variables, 16,384 clauses, 65,535 literals. Any instance within all
   three limits fits the clause store (1 + 2 x clauses + literals <= 98,304 words).
 - **Clock:** 50 MHz. An out-of-context nextpnr run reaches about 58 MHz. It uses 163 DP16KD
-  (of the 183 available), about 2.5k LUTs and 750 FFs.
+  (of the 183 available), about 2.8k LUTs and 900 FFs. Variables that appear in no clause are fixed to
+  false and never decided.
 - **Tests:** `pip install amaranth==0.5.8 pytest && pytest`. Random CNFs are checked against
   brute force through the full Wishbone shell, along with watched-literal edge cases
   (duplicate literals, tautologies, units, width-200 clauses, implication chains,
