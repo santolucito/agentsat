@@ -10,7 +10,7 @@ project:
   # Verilog carries a zero initialiser for every memory word, which makes
   # the platform's yosys run out of memory on this design.
   language: verilog           # amaranth | verilog
-  clock_hz: 50000000          # your design clock, in Hz
+  clock_hz: 62000000          # your design clock, in Hz
 
   disclosure:
     method: agent-generated   # hand | ai-assisted | agent-generated

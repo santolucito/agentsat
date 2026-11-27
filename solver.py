@@ -103,8 +103,11 @@ Memories (one read and one write port each, block RAM)
     asg_a   8192 x  1  assigned
     asg_v   8192 x  1  value (kept on unassign: saved phase; the model)
     seen    8192 x  1  analysis mark
-    lr      8192 x 31  [13:0] decision level, [30:14] reason: h + 2 for
-                       the clause at header h (its first literal), 0 for none
+    lrl     8192 x 14  decision level
+    lrr     8192 x 17  reason: h + 2 for the clause at header h (its first
+                       literal), 0 for none (lrl and lrr are read and
+                       written together; split so the level needs no bank
+                       multiplexer)
     trail   8192 x 16  [13:0] variable, [14] value, [15] decision
     heap    8192 x 14  decision heap: variable at each position
     hpos    8192 x 15  [13:0] heap position of each variable, [14] in heap
@@ -118,8 +121,8 @@ no initialisation. Explicit DP16KD instances (bram_primitives = True) give
 the same tiling and behaviour. The store is 16384 x 1 blocks (per-bit write
 enables), 5 banks per bit. The per-variable memories wider than one bit are
 built from 1024 x 18 / 2048 x 9 blocks plus narrower ones for the remaining
-bits. Block RAMs: store 90, asg 2, seen 1, lr 14, trail 8, heap 6, hpos 7,
-act 8 = 136 DP16KD. The template says 183 are free, but the real SoC's
+bits. Block RAMs: store 90, asg 2, seen 1, lrl 7, lrr 8, trail 8, heap 6,
+hpos 7, act 8 = 137 DP16KD (138 for the whole entry). The template says 183 are free, but the real SoC's
 firmware ROM takes more, and the platform allows about 155 (mrg-sandbox#35);
 that limit is why the variable capacity is 8192, not 16384. A Bram behaves exactly like a
 non-transparent Memory read port (old data on a same-cycle write); see its
@@ -149,8 +152,24 @@ same cycle (it is registered first; reads past the end of a clause are issued
 speculatively rather than steered by the last flag), the data of the packed
 per-variable memories is registered before it steers control, and only the
 small 1-bit memories (asg, seen) take an address straight from other read
-data. Out of context nextpnr reaches 53-56 MHz (seeds 1-4); the design runs
-at 50 MHz.
+data. Further:
+  * The FSM is one-hot (fsm_oh), and its Switch is marked parallel_case
+    (parallel_switches), so yosys builds flat AND-OR next-state and register
+    logic instead of priority chains.
+  * Every store read and write address and the write data is an AND-OR of
+    per-state terms (one per state, asserted), built after the FSM, and the
+    addresses a state uses are precomputed into registers (h1..h4, cur_oa,
+    cur_own, waddr1, ...), so no adder sits before the store.
+  * Every Bram registers its write, and the read of a word being written
+    takes the forwarded data, compared between registered addresses; the
+    memories are marked no_rw_check, so yosys adds no collision logic.
+  * The two decisions that use asg data read the cycle before (keep a watch
+    in WY, judge a candidate in SRCH) are made after the Switch, so they
+    enter only the last multiplexer level.
+  * Store data that steers the FSM is registered first (BIN flag, MARK, RD,
+    SC, MN stages), at the cost of a cycle in a few places.
+Out of context nextpnr reaches 65.4-66.0 MHz (seeds 1-3, at --freq 62); the
+design runs at 62 MHz.
 
 Cycle costs (1-cycle read latency; no read in the same cycle as a write that
 could hit the same address):
