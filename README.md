@@ -83,3 +83,9 @@ Your repository must be public at submission, and your results and bitstream are
 ## Methods Award
 
 If your entry was built with AI assistance, you may also submit a methods paper of at most 10 pages. List it under `methods_paper` in `info.yaml`. The paper must accompany a valid final entry. See the rules for the rubric.
+
+## Benchmark harness (`sim/`)
+
+`python sim/run_bench.py --cnf-dir DIR --answers manifest.csv --max-cycles N` exports the solver to
+Verilog, builds a Verilator model, and runs each CNF with a cycle cap. It checks every SAT model and,
+with the public manifest, every answer against the known result. It needs yosys and verilator on PATH.
