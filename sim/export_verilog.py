@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from amaranth.back import rtlil  # noqa: E402
 
-from solver import Solver  # noqa: E402
+from solver import Solver, parallel_switches  # noqa: E402
 
 
 def main():
@@ -39,7 +39,8 @@ def main():
     ]
     il = os.path.join(out, "solver.il")
     with open(il, "w") as f:
-        f.write(rtlil.convert(s, name="solver", ports=ports))
+        # as in tools/gen_verilog.py (see solver.parallel_switches)
+        f.write(parallel_switches(rtlil.convert(s, name="solver", ports=ports)))
     subprocess.run(
         ["yosys", "-q", "-p",
          f"read_rtlil {il}; {'delete t:$meminit_v2; ' if memory else ''}"

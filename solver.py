@@ -181,6 +181,8 @@ INFO: the reason code for REJECTED or a give-up (RESULT 0); after SAT or
 UNSAT it holds the number of conflicts (for logs only).
 """
 
+import re
+
 from amaranth import (Array, Cat, ClockSignal, Const, Elaboratable, Instance, Module, Mux,
                       ResetInserter, Signal, signed)
 from amaranth.lib.memory import Memory
@@ -425,6 +427,23 @@ class Bram(Elaboratable):
         return m
 
 
+def parallel_switches(text):
+    """Mark the Switch on the one-hot FSM state (`fsm_oh`) parallel_case in
+    RTLIL text from amaranth.back.rtlil.convert. Its cases test one bit each
+    and exactly one bit is set, so no two cases can match at once; with the
+    mark, yosys' proc builds one parallel multiplexer per signal instead of a
+    priority chain through every state. Used by tools/gen_verilog.py and
+    sim/export_verilog.py."""
+    out, n = [], 0
+    for line in text.split("\n"):
+        if re.fullmatch(r"\s*switch \\fsm_oh( \[\d+:0\])?", line):
+            out.append(line[: len(line) - len(line.lstrip())] + "attribute \\parallel_case 1")
+            n += 1
+        out.append(line)
+    assert n > 0, "no switch on fsm_oh found"
+    return "\n".join(out)
+
+
 class Solver(Elaboratable):
     # Largest instance this design accepts (see "Capacity" above). Each limit
     # can be reached on its own; an instance whose heads, clauses and learning
@@ -504,17 +523,21 @@ class Solver(Elaboratable):
         m.d.comb += [aa_r.addr.eq(as_addr), av_r.addr.eq(as_addr)]
         as_data = Cat(av_r.data, aa_r.data)  # [0] value, [1] assigned
 
-        # One-hot copy of the FSM state (Timing). Every transition goes
-        # through goto(), which also sets the next value of fsm_oh, so
-        # fsm_oh[state_index[X]] is 1 exactly while the FSM is in state X.
-        # goto(Y) in state X clears X's bit and sets Y's; all other bits are
-        # 0 then and keep their value, so each bit's next value depends only
-        # on the transitions into and out of its own state.
-        # yosys keeps Amaranth's FSM binary (it cannot extract it), and
-        # decoding its 7 state bits costs two LUT levels before a mux.
+        # The control FSM, one-hot (Timing): fsm_oh[state_index[X]] is 1
+        # exactly while in state X. The states are the cases of a Switch on
+        # fsm_oh, each matching its own bit; goto(Y) in state X clears X's
+        # bit and sets Y's. All other bits are 0 then and keep their value,
+        # so each bit's next value depends only on the transitions into and
+        # out of its own state. (An Amaranth FSM is binary, and yosys cannot
+        # re-encode it: the next state then goes through a wide multiplexer
+        # over all states, and every use of a state decodes seven bits.)
+        # The cases never overlap, so the Switch is marked parallel_case
+        # for synthesis (see parallel_switches below); without the mark it
+        # behaves the same but synthesizes to priority logic.
+        NSTATES = 128  # at least the number of states
         state_index = {"IDLE": 0}
-        fsm_oh = Signal(128, init=1)
-        oh_next = Signal(128)
+        fsm_oh = Signal(NSTATES, init=1)
+        oh_next = Signal(NSTATES)
         m.d.comb += oh_next.eq(fsm_oh)
         m.d.sync += fsm_oh.eq(oh_next)
         cur_state = [None]
@@ -526,13 +549,13 @@ class Solver(Elaboratable):
             return state_index[name]
 
         def goto(name):
-            m.next = name
             m.d.comb += [oh_next[sidx(cur_state[0])].eq(0), oh_next[sidx(name)].eq(1)]
 
         class State:
             def __init__(self, name):
                 self.name = name
-                self.ctx = m.State(name)
+                k = sidx(name)
+                self.ctx = m.Case("-" * (NSTATES - 1 - k) + "1" + "-" * k)
 
             def __enter__(self):
                 cur_state[0] = self.name
@@ -879,8 +902,7 @@ class Solver(Elaboratable):
         self.dbg = dict(dl=dl, tp=tp, crst=crst, redc=redc, lfree=lfree, qhead=qhead, hn=hn,
                         path_c=path_c, lw=lw, lh=lh, bjl=bjl)
 
-        with m.FSM(init="IDLE") as fsm:
-            self.dbg["fsm"] = fsm
+        with m.Switch(fsm_oh):  # the FSM (see State and goto)
             # ------------------------------------------------------------ load
             with State("IDLE"):
                 m.d.comb += [self.idle.eq(1), self.load_ready.eq(1)]
@@ -1869,8 +1891,19 @@ class Solver(Elaboratable):
         for t in terms[1:]:
             acc = acc | t
         m.d.comb += st_r.addr.eq(acc)
-        self.dbg["fsm_oh"] = fsm_oh
-        self.dbg["state_index"] = state_index
+        # For tests: the state as a number (simulation only; unused, so
+        # synthesis removes it) and its encoding, like an Amaranth FSM's.
+        dbg_state = Signal(range(NSTATES))
+        enc = 0
+        for k in state_index.values():
+            enc = enc | Mux(fsm_oh[k], k, 0)
+        m.d.comb += dbg_state.eq(enc)
+
+        class _FsmDebug:
+            state = dbg_state
+            encoding = dict(state_index)
+
+        self.dbg["fsm"] = _FsmDebug
 
         # ABORT resets every register of the solver (the FSM returns to IDLE,
         # the load pointer to 1) in the cycle after it rises. Memory contents

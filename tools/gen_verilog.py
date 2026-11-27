@@ -10,6 +10,9 @@ the Amaranth entry runs out of memory. This script converts design.Entry
 $meminit cells, and writes Verilog. The memories are left without an
 initialiser; synth_ecp5 maps them to DP16KD block RAM, which powers up
 zeroed, and the solver clears every memory it relies on at START anyway.
+It also marks the Switch on the solver's one-hot FSM state parallel_case
+(solver.parallel_switches): its cases never overlap, and without the mark
+yosys builds priority logic through every state.
 
 The Amaranth files (design.py, solver.py) are the real source; design.v is a
 generated artifact checked in so the platform can build it. Needs yosys on
@@ -40,7 +43,8 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         il = os.path.join(tmp, "entry.il")
         with open(il, "w") as f:
-            f.write(rtlil.convert(e, name=TOP, ports=ports))
+            # parallel_case on the one-hot FSM switch (see solver.parallel_switches)
+            f.write(solver.parallel_switches(rtlil.convert(e, name=TOP, ports=ports)))
         subprocess.run(
             ["yosys", "-q", "-p",
              f"read_rtlil {il}; delete t:$meminit_v2 t:$meminit; hierarchy -check -top {TOP}; "
