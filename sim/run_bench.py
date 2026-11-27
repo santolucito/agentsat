@@ -30,10 +30,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 
 
-def build(build_dir, memory=False):
+def build(build_dir, memory=False, hazard=False):
     os.makedirs(build_dir, exist_ok=True)
     subprocess.run([sys.executable, os.path.join(HERE, "export_verilog.py"), build_dir]
-                   + (["--memory"] if memory else []), check=True)
+                   + (["--memory"] if memory else []) + (["--hazard"] if hazard else []),
+                   check=True)
     model = [] if memory else [os.path.join(HERE, "dp16kd_sim.v")]
     subprocess.run(
         ["verilator", "--cc", "--exe", "--build", "-O3", "-Wno-fatal", "-Wno-lint", "-Wno-style",
@@ -70,9 +71,11 @@ def main():
     ap.add_argument("--memory", action="store_true",
                     help="build the Memory version instead of the DP16KD one")
     ap.add_argument("--plusargs", nargs="*", default=[], help="plusargs for the model")
+    ap.add_argument("--hazard", action="store_true",
+                    help="count store reads that hit a pending write (see export_verilog.py)")
     a = ap.parse_args()
 
-    binary = build(a.build, memory=a.memory)
+    binary = build(a.build, memory=a.memory, hazard=a.hazard)
     files = sorted(f for f in os.listdir(a.cnf_dir) if f.endswith(".cnf"))
     if a.only:
         files = [f for f in files if f[:-4] in set(a.only)]
@@ -119,6 +122,8 @@ def main():
         "par2_cycles": par2,
         "solved_ids": [r["id"] for r in solved],
     }
+    if a.hazard:
+        summary["hazards"] = sum(r.get("hazards", 0) for r in results)
     if a.out:
         with open(a.out, "w") as f:
             json.dump({"summary": summary, "results": results}, f, indent=1)

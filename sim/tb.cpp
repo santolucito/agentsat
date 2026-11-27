@@ -76,6 +76,14 @@ struct Sim {
     ctx->commandArgs(argc, argv);
     top.reset(new Vsolver(ctx.get()));
     top->clk = 0;
+    // Every input starts at a defined value: with +verilator+rand+reset+2 an
+    // undriven input (start, load_valid) would start random.
+    top->__SYM__abort = 0;
+    top->start = 0;
+    top->load_valid = 0;
+    top->load_data = 0;
+    top->nvars = top->nclauses = top->nlits = 0;
+    top->model_addr = 0;
     top->rst = 1;
     top->eval();
     tick();
@@ -128,8 +136,14 @@ static void run_one(Sim &s, const char *path, uint64_t max_cycles) {
   t->start = 0;
   uint64_t c0 = s.cycles;
   const char *status = "timeout";
+#ifdef HAZARD
+  uint64_t hazards = 0;
+#endif
   while (s.cycles - c0 < max_cycles) {
     t->eval();
+#ifdef HAZARD
+    hazards += t->hz;
+#endif
     if (t->rejected) { status = "rejected"; break; }
     if (t->done) {
       status = t->result == 1 ? "sat" : t->result == 2 ? "unsat" : "unknown";
@@ -157,8 +171,14 @@ static void run_one(Sim &s, const char *path, uint64_t max_cycles) {
     }
     mok = ok ? "true" : "false";
   }
+#ifdef HAZARD
+  printf("{\"file\":\"%s\",\"status\":\"%s\",\"cycles\":%llu,\"model_ok\":%s,\"info\":%u,"
+         "\"hazards\":%llu}\n",
+         path, status, (unsigned long long)cyc, mok, (unsigned)t->info, (unsigned long long)hazards);
+#else
   printf("{\"file\":\"%s\",\"status\":\"%s\",\"cycles\":%llu,\"model_ok\":%s,\"info\":%u}\n",
          path, status, (unsigned long long)cyc, mok, (unsigned)t->info);
+#endif
   fflush(stdout);
 }
 

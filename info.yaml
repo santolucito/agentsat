@@ -4,13 +4,13 @@ yaml_version: 1
 project:
   title: "CDCL with watched literals"
   author: "Mark Santolucito"
-  description: "CDCL: two-watched-literal propagation, first-UIP learning with minimization, backjumping, heap-based EVSIDS, Luby restarts and clause-database reduction, all in block RAM."
+  description: "CDCL: pipelined two-watched-literal propagation, first-UIP learning with minimization, backjumping, heap-based EVSIDS, Luby restarts and clause-database reduction, all in block RAM."
   # Written in Amaranth (design.py, solver.py). Submitted as the Verilog that
   # tools/gen_verilog.py generates from it (design.v), because Amaranth's
   # Verilog carries a zero initialiser for every memory word, which makes
   # the platform's yosys run out of memory on this design.
   language: verilog           # amaranth | verilog
-  clock_hz: 62000000          # your design clock, in Hz
+  clock_hz: 59000000          # your design clock, in Hz
 
   disclosure:
     method: agent-generated   # hand | ai-assisted | agent-generated

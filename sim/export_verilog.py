@@ -1,6 +1,6 @@
 """Export the Solver (without the Wishbone shell) as Verilog for Verilator.
 
-Usage: python sim/export_verilog.py OUT_DIR [--memory]
+Usage: python sim/export_verilog.py OUT_DIR [--memory] [--hazard]
 
 Writes OUT_DIR/solver.v (top module `solver`) and OUT_DIR/caps.h with the
 declared capacity. Needs `yosys` on PATH (for example from oss-cad-suite).
@@ -12,6 +12,11 @@ DP16KD). With --memory the solver is exported with its Memory build
 tools/gen_verilog.py (the competition build), the memory initialisers are
 deleted, so memories start undefined; run the binary with
 +verilator+rand+reset+2 to start them with random contents.
+
+--hazard (simulation only) builds the solver with Solver.hazard_check and
+adds an output `hz`, high in a cycle in which a store read whose data is
+used hits a pending write (see solver.py, F1); tb.cpp then reports the
+number of such cycles per instance as "hazards" (expected: always 0).
 """
 
 import os
@@ -28,15 +33,19 @@ from solver import Solver, parallel_switches  # noqa: E402
 def main():
     args = sys.argv[1:]
     memory = "--memory" in args
-    out = [a for a in args if a != "--memory"][0]
+    hazard = "--hazard" in args
+    out = [a for a in args if a not in ("--memory", "--hazard")][0]
     os.makedirs(out, exist_ok=True)
     Solver.bram_primitives = not memory
+    Solver.hazard_check = hazard
     s = Solver()
     ports = [
         s.start, s.abort, s.nvars, s.nclauses, s.nlits, s.load_valid, s.load_data,
         s.model_addr, s.idle, s.load_ready, s.done, s.rejected, s.result, s.info,
         s.model_val,
     ]
+    if hazard:
+        ports.append(s.hz)
     il = os.path.join(out, "solver.il")
     with open(il, "w") as f:
         # as in tools/gen_verilog.py (see solver.parallel_switches)
@@ -52,6 +61,8 @@ def main():
         f.write(f"#define MAX_VARS {Solver.max_vars}ULL\n")
         f.write(f"#define MAX_CLAUSES {Solver.max_clauses}ULL\n")
         f.write(f"#define MAX_LITS {Solver.max_lits}ULL\n")
+        if hazard:
+            f.write("#define HAZARD 1\n")
 
 
 if __name__ == "__main__":
